@@ -1,0 +1,20 @@
+{
+  "name": "com.flos.adapter.unity",
+  "version": "0.1.0",
+  "displayName": "Flos Unity Adapter",
+  "description": "Unity engine adapter for the Flos game logic framework.",
+  "unity": "2021.3",
+  "keywords": [
+    "flos",
+    "game-logic",
+    "framework",
+    "adapter"
+  ],
+  "author": {
+    "name": "Flos Contributors"
+  },
+  "dependencies": {
+    "com.unity.addressables": "1.19.0"
+  },
+  "samples": []
+}

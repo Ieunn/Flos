@@ -1,0 +1,26 @@
+{
+  "name": "Flos.Adapter.Unity.VContainer",
+  "rootNamespace": "Flos.Adapter.Unity.VContainer",
+  "references": [
+    "Flos.Adapter.Unity"
+  ],
+  "includePlatforms": [],
+  "excludePlatforms": [],
+  "allowUnsafeCode": false,
+  "overrideReferences": true,
+  "precompiledReferences": [
+    "Flos.Core.dll"
+  ],
+  "autoReferenced": false,
+  "defineConstraints": [
+    "FLOS_VCONTAINER"
+  ],
+  "versionDefines": [
+    {
+      "name": "jp.hadashikick.vcontainer",
+      "expression": "",
+      "define": "FLOS_VCONTAINER"
+    }
+  ],
+  "noEngineReferences": false
+}

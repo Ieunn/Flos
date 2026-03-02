@@ -1,0 +1,169 @@
+{
+  "metadata": [
+    {
+      "src": [
+        {
+          "files": ["src/**/Flos.Core.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Random.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Collections.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Identity.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Snapshot.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Serialization.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Diagnostics.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Pattern.CQRS.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Pattern.ECS.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Testing.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Analyzers.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Generators.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Adapter.csproj"],
+          "src": ".."
+        },
+        {
+          "files": ["src/**/Flos.Adapter.Console.csproj"],
+          "src": ".."
+        }
+      ],
+      "dest": "api"
+    }
+  ],
+  "build": {
+    "content": [
+      {
+        "files": ["api/**.yml", "api/index.md"]
+      },
+      {
+        "files": [
+          "docs/index.md",
+          "docs/Architecture.md",
+          "docs/toc.yml"
+        ],
+        "src": ".."
+      },
+      {
+        "files": ["src/Flos.Core/README.md"],
+        "src": "..",
+        "dest": "packages/core"
+      },
+      {
+        "files": ["src/Flos.Random/README.md"],
+        "src": "..",
+        "dest": "packages/random"
+      },
+      {
+        "files": ["src/Flos.Collections/README.md"],
+        "src": "..",
+        "dest": "packages/collections"
+      },
+      {
+        "files": ["src/Flos.Identity/README.md"],
+        "src": "..",
+        "dest": "packages/identity"
+      },
+      {
+        "files": ["src/Flos.Snapshot/README.md"],
+        "src": "..",
+        "dest": "packages/snapshot"
+      },
+      {
+        "files": ["src/Flos.Serialization/README.md"],
+        "src": "..",
+        "dest": "packages/serialization"
+      },
+      {
+        "files": ["src/Flos.Diagnostics/README.md"],
+        "src": "..",
+        "dest": "packages/diagnostics"
+      },
+      {
+        "files": ["src/Flos.Pattern.CQRS/README.md"],
+        "src": "..",
+        "dest": "packages/cqrs"
+      },
+      {
+        "files": ["src/Flos.Pattern.ECS/README.md"],
+        "src": "..",
+        "dest": "packages/ecs"
+      },
+      {
+        "files": ["src/Flos.Testing/README.md"],
+        "src": "..",
+        "dest": "packages/testing"
+      },
+      {
+        "files": ["src/Flos.Analyzers/README.md"],
+        "src": "..",
+        "dest": "packages/analyzers"
+      },
+      {
+        "files": ["src/Flos.Generators/README.md"],
+        "src": "..",
+        "dest": "packages/generators"
+      },
+      {
+        "files": ["src/Flos.Adapter.Console/README.md"],
+        "src": "..",
+        "dest": "packages/adapter-console"
+      },
+      {
+        "files": ["src/Flos.Adapter.Unity/README.md"],
+        "src": "..",
+        "dest": "packages/adapter-unity"
+      },
+      {
+        "files": ["src/Flos.Adapter.Godot/README.md"],
+        "src": "..",
+        "dest": "packages/adapter-godot"
+      }
+    ],
+    "resource": [
+      {
+        "files": ["images/**"]
+      }
+    ],
+    "output": "_site",
+    "globalMetadataFiles": [],
+    "fileMetadataFiles": [],
+    "template": ["default", "modern"],
+    "globalMetadata": {
+      "_appTitle": "Flos Framework",
+      "_appFooter": "Flos — Minimalistic game logic framework",
+      "_enableSearch": true
+    }
+  }
+}
