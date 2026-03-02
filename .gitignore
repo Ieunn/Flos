@@ -5,6 +5,7 @@
 .utmp/
 /[Ll]ibrary/
 /[Tt]emp/
+/[Bb]in/
 /[Oo]bj/
 /[Bb]uild/
 /[Bb]uilds/
@@ -63,7 +64,23 @@ ExportedObj/
 # Unity3D generated file on crash reports
 sysinfo.txt
 
-# Mono auto generated files
+# Godot 4+ specific ignores
+.godot/
+.nomedia
+
+# Godot-specific ignores
+.import/
+export.cfg
+export_credentials.cfg
+*.tmp
+
+# Imported translations (automatically generated from CSV files)
+*.translation
+
+# Mono-specific ignores
+.mono/
+data_*/
+mono_crash.*.json
 mono_crash.*
 
 # Builds
