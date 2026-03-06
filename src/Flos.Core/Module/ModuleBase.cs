@@ -27,13 +27,13 @@ public abstract class ModuleBase : IModule
     protected IServiceRegistry Scope { get; private set; } = null!;
 
     /// <summary>
-    /// Stores the underlying service registry for use in <see cref="OnInitialize"/>.
+    /// Stores the service registry for use in <see cref="OnInitialize"/>.
     /// Call <c>base.OnLoad(scope)</c> when overriding.
     /// </summary>
-    /// <param name="scope">The load scope exposing registration and pre-registered infrastructure.</param>
-    public virtual void OnLoad(ILoadScope scope)
+    /// <param name="scope">The service registry for registration and resolving pre-registered services.</param>
+    public virtual void OnLoad(IServiceRegistry scope)
     {
-        Scope = scope.Registry;
+        Scope = scope;
     }
 
     /// <summary>

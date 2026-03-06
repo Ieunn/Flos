@@ -95,10 +95,9 @@ public sealed class Session : ISession
         {
             _sortedModules = ModuleLoader.TopologicalSort(config.Modules);
 
-            var loadScope = new LoadScope(_rootScope, world, bus, scheduler, dispatcher, patternRegistry, config);
             foreach (var module in _sortedModules)
             {
-                module.OnLoad(loadScope);
+                module.OnLoad(_rootScope);
                 _loadedModules.Add(module);
             }
 

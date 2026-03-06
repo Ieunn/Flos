@@ -18,21 +18,21 @@ public sealed class CQRSPatternModule : ModuleBase
     private IHandlerRegistry? _registry;
 
     /// <inheritdoc />
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
 
-        scope.Patterns.Register(CQRSPattern.Id);
+        Scope.Resolve<IPatternRegistry>().Register(CQRSPattern.Id);
 
-        scope.TryRegister(new CQRSConfig());
+        Scope.TryRegister(new CQRSConfig());
 
-        scope.Register<IEventJournal>(s =>
+        Scope.Register<IEventJournal>(s =>
         {
             var config = s.Resolve<CQRSConfig>();
             return new EventJournal { MaxEntries = config.MaxJournalEntries };
         });
 
-        scope.TryRegister<ICQRSAdapter>(s =>
+        Scope.TryRegister<ICQRSAdapter>(s =>
         {
             s.TryResolve<IRollbackProvider>(out var rollbackProvider);
             var config = s.Resolve<CQRSConfig>();
@@ -41,13 +41,13 @@ public sealed class CQRSPatternModule : ModuleBase
             return new BuiltInCQRSAdapter(rollbackProvider, journal, scheduler, config);
         });
 
-        scope.Register<IPipeline>(s =>
+        Scope.Register<IPipeline>(s =>
         {
             EnsurePipelineCreated(s);
             return _pipeline!;
         });
 
-        scope.Register<IHandlerRegistry>(s =>
+        Scope.Register<IHandlerRegistry>(s =>
         {
             EnsurePipelineCreated(s);
             return _registry!;
@@ -56,7 +56,7 @@ public sealed class CQRSPatternModule : ModuleBase
         // Register middleware early — the bus is already an instance in the scope at this point.
         // The DeferredCQRSMiddleware delays pipeline resolution until the first command is received,
         // ensuring the scope is locked and all factories are resolvable.
-        scope.Bus.Use(new DeferredCQRSMiddleware(Scope));
+        Scope.Resolve<IMessageBus>().Use(new DeferredCQRSMiddleware(Scope));
     }
 
     private void EnsurePipelineCreated(IServiceRegistry scope)

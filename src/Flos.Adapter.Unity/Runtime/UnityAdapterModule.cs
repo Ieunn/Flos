@@ -18,15 +18,15 @@ namespace Flos.Adapter.Unity
         private readonly UnityProfilerBridge _profilerBridge = new UnityProfilerBridge();
         private readonly UnityAssetBridge _assetBridge = new UnityAssetBridge();
 
-        public override void OnLoad(ILoadScope scope)
+        public override void OnLoad(IServiceRegistry scope)
         {
             base.OnLoad(scope);
 
             CoreLog.Handler = UnityLogBridge.Handler;
 
-            scope.Register<IProfiler>(_profilerBridge);
-            scope.Register<ISaveStorage>(_saveBridge);
-            scope.Register<IAssetProvider>(_assetBridge);
+            Scope.Register<IProfiler>(_profilerBridge);
+            Scope.Register<ISaveStorage>(_saveBridge);
+            Scope.Register<IAssetProvider>(_assetBridge);
         }
 
         public override void OnInitialize()

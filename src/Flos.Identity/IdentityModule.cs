@@ -25,9 +25,9 @@ public sealed class IdentityModule : ModuleBase
     public override IReadOnlyList<string> Dependencies => Array.Empty<string>();
 
     /// <inheritdoc />
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
-        scope.Register<IIdGenerator>(new SequentialIdGenerator(_startValue));
+        Scope.Register<IIdGenerator>(new SequentialIdGenerator(_startValue));
     }
 }

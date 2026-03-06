@@ -167,7 +167,6 @@ internal sealed class Pipeline : IPipeline, IHandlerRegistry, IApplierDispatch
     private void EndSend(IStateReader? rollbackSnapshot)
     {
         _handlerView.Reset();
-        _eventBuffer.Reset();
         ReleaseSnapshot(rollbackSnapshot);
         _isSending = false;
     }

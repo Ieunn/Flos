@@ -61,10 +61,10 @@ public class ScoreModule : ModuleBase
     public override string Id => "Score";
     public override IReadOnlyList<string> RequiredPatterns => [CQRSPattern.Id];
 
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
-        scope.World.Register(new ScoreState());
+        Scope.Resolve<IWorld>().Register(new ScoreState());
     }
 
     public override void OnInitialize()

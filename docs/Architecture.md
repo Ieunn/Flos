@@ -42,10 +42,10 @@ public class CounterModule : ModuleBase
 
     private IWorld _world = null!;
 
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
-        scope.World.Register(new CounterState());
+        Scope.Resolve<IWorld>().Register(new CounterState());
     }
 
     public override void OnInitialize()
@@ -249,17 +249,17 @@ Services are available at different points in the module lifecycle:
 
 | Service | Available during `OnLoad` | Available during `OnInitialize` |
 |---------|--------------------------|--------------------------------|
-| `IWorld` | Yes (`scope.World`) | Yes |
-| `IStateReader` | No (use `scope.World` for registration) | Yes |
-| `IMessageBus` | Yes (`scope.Bus`) | Yes |
-| `IScheduler` | Yes (`scope.Scheduler`) | Yes |
-| `IDispatcher` | Yes (`scope.Dispatcher`) | Yes |
-| `IPatternRegistry` | Yes (`scope.Patterns`) | Yes |
-| `SessionConfig` | Yes (`scope.Config`) | Yes |
+| `IWorld` | Yes (`Scope.Resolve<IWorld>()`) | Yes |
+| `IStateReader` | Yes (`Scope.Resolve<IStateReader>()`) | Yes |
+| `IMessageBus` | Yes (`Scope.Resolve<IMessageBus>()`) | Yes |
+| `IScheduler` | Yes (`Scope.Resolve<IScheduler>()`) | Yes |
+| `IDispatcher` | Yes (`Scope.Resolve<IDispatcher>()`) | Yes |
+| `IPatternRegistry` | Yes (`Scope.Resolve<IPatternRegistry>()`) | Yes |
+| `SessionConfig` | Yes (`Scope.Resolve<SessionConfig>()`) | Yes |
 | Your module's services | Yes (you just registered them) | Yes |
-| Other modules' services | **No** (`Resolve<T>()` not available on `ILoadScope`) | Yes (scope is locked) |
+| Other modules' services | **No** (registration order is not guaranteed) | Yes (scope is locked) |
 
-**Rule of thumb:** Register services and state slices in `OnLoad` using `ILoadScope`. Resolve cross-module services and cache references in `OnInitialize` using `Scope` (the full `IServiceRegistry`). The scope is locked between `OnLoad` and `OnInitialize` — no more registrations are allowed after that point.
+**Rule of thumb:** Always use the `Scope` property after calling `base.OnLoad(scope)` — it is the same `IServiceRegistry` instance, and using `Scope` consistently across `OnLoad` and `OnInitialize` keeps the code uniform. Register services and state slices in `OnLoad`. Resolve cross-module services and cache references in `OnInitialize`. The scope is locked between `OnLoad` and `OnInitialize` — no more registrations are allowed after that point. Pre-registered infrastructure (IWorld, IMessageBus, etc.) can be safely resolved in `OnLoad` since Session registers them before any module loads.
 
 ### Snapshot & Replay
 
@@ -291,8 +291,8 @@ sequenceDiagram
     participant S as Session
     participant M as Module
 
-    S->>M: OnLoad(ILoadScope)
-    Note right of M: Register services, access infrastructure
+    S->>M: OnLoad(IServiceRegistry)
+    Note right of M: Register services, resolve pre-registered infrastructure
     S->>M: OnInitialize()
     Note right of M: Resolve cross-module services
     S->>M: OnStart()
@@ -387,10 +387,10 @@ public class HealthModule : ModuleBase
 
     private IMessageBus _bus = null!;
 
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
-        scope.World.Register(new HealthState());
+        Scope.Resolve<IWorld>().Register(new HealthState());
     }
 
     public override void OnInitialize()
@@ -460,21 +460,21 @@ public class MyPatternModule : ModuleBase
 {
     public override string Id => "MyPattern";
 
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
 
         // 3. Register the pattern
-        scope.Patterns.Register(MyPattern.Id);
+        Scope.Resolve<IPatternRegistry>().Register(MyPattern.Id);
 
         // 4. Register pattern services
-        scope.Register<IMyPatternService>(new MyPatternService());
+        Scope.Register<IMyPatternService>(new MyPatternService());
 
         // 5. Install middleware (optional)
-        // Middleware can be registered in OnLoad — the bus instance is available via scope.Bus.
+        // Middleware can be registered in OnLoad — the bus instance is available via Resolve.
         // CQRS does this: it installs DeferredCQRSMiddleware during OnLoad so commands
         // published via bus.Publish() are intercepted from the very first message.
-        scope.Bus.Use(new MyPatternMiddleware());
+        Scope.Resolve<IMessageBus>().Use(new MyPatternMiddleware());
     }
 
     public override void OnInitialize()

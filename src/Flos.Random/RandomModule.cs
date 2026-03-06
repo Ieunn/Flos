@@ -19,11 +19,11 @@ public sealed class RandomModule : ModuleBase
     /// <summary>
     /// Registers a seeded <see cref="Xoshiro256StarStarRandom"/> as <see cref="IRandom"/>.
     /// </summary>
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
         var rng = new Xoshiro256StarStarRandom();
         rng.SetSeed(_seed);
-        scope.Register<IRandom>(rng);
+        Scope.Register<IRandom>(rng);
     }
 }

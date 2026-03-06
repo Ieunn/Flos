@@ -48,7 +48,7 @@ The session is the top-level container that owns the world, scheduler, message b
 
 ### Modules (`ModuleBase`)
 
-Modules are black boxes with a defined lifecycle: `OnLoad(ILoadScope)` → `OnInitialize` → `OnStart` → `OnPause`/`OnResume` → `OnShutdown`. During `OnLoad`, the scope is open — register services and access pre-registered infrastructure via `ILoadScope` properties (`scope.World`, `scope.Bus`, etc.). During `OnInitialize`, the scope is locked — resolve cross-module services and cache references via `Scope` (the full `IServiceRegistry`). Modules are loaded in topological dependency order and shut down in reverse order.
+Modules are black boxes with a defined lifecycle: `OnLoad(IServiceRegistry)` → `OnInitialize` → `OnStart` → `OnPause`/`OnResume` → `OnShutdown`. During `OnLoad`, the scope is open — register services and resolve pre-registered infrastructure (IWorld, IMessageBus, etc.) via `scope.Resolve<T>()`. During `OnInitialize`, the scope is locked — resolve cross-module services and cache references via `Scope` (the same `IServiceRegistry`). Modules are loaded in topological dependency order and shut down in reverse order.
 
 ```csharp
 public class MyModule : ModuleBase
@@ -58,10 +58,10 @@ public class MyModule : ModuleBase
 
     private IMessageBus _bus = null!;
 
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
-        scope.World.Register(new MyState());
+        Scope.Resolve<IWorld>().Register(new MyState());
     }
 
     public override void OnInitialize()
@@ -146,8 +146,6 @@ Lifecycle messages published: `SessionInitializedMessage`, `SessionStartedMessag
 |------|-------------|
 | `IModule` | Module lifecycle contract |
 | `ModuleBase` | Convenience base class with no-op defaults |
-| `ILoadScope` | Narrowed scope for `OnLoad` — exposes registration and pre-registered infrastructure, hides `Resolve<T>()`. |
-| `LoadScope` | Default implementation of `ILoadScope` wrapping `IServiceRegistry`. |
 | `IServiceRegistry` | Singleton service locator with two-phase lifecycle (register, then lock). `Register`, `TryRegister`, `Resolve`, `TryResolve`, `IsRegistered`, `Lock`. |
 | `IScopeFactory` | Factory for external DI container integration |
 | `IPatternRegistry` | Registry of loaded gameplay patterns |

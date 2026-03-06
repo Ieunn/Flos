@@ -45,7 +45,7 @@ public sealed class ConsoleAdapterModule : ModuleBase
         _stderr = stderr;
     }
 
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
 

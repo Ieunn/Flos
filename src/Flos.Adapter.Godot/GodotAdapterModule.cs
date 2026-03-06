@@ -20,15 +20,15 @@ public sealed class GodotAdapterModule : ModuleBase
     private IMessageBus? _bus;
     private int _tickSubscriptionId;
 
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
 
         CoreLog.Handler = GodotLogBridge.Handler;
 
-        scope.Register<IProfiler>(_profilerBridge);
-        scope.Register<ISaveStorage>(_saveBridge);
-        scope.Register<IAssetProvider>(_assetBridge);
+        Scope.Register<IProfiler>(_profilerBridge);
+        Scope.Register<ISaveStorage>(_saveBridge);
+        Scope.Register<IAssetProvider>(_assetBridge);
     }
 
     public override void OnInitialize()

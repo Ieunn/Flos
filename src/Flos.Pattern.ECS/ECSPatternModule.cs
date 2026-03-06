@@ -35,14 +35,14 @@ public sealed class ECSPatternModule : ModuleBase
         _tickPriority = tickPriority;
     }
 
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
 
-        scope.Patterns.Register(ECSPattern.Id);
+        Scope.Resolve<IPatternRegistry>().Register(ECSPattern.Id);
 
-        scope.Register<ICommandBuffer>(_commandBuffer);
-        scope.Register<IECSAdapter>(_adapter);
+        Scope.Register<ICommandBuffer>(_commandBuffer);
+        Scope.Register<IECSAdapter>(_adapter);
     }
 
     public override void OnInitialize()

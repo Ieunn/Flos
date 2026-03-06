@@ -14,9 +14,9 @@ public sealed class SnapshotModule : ModuleBase
     public override IReadOnlyList<string> Dependencies => Array.Empty<string>();
 
     /// <inheritdoc />
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
-        scope.Register<ISnapshots>(new Snapshots());
+        Scope.Register<ISnapshots>(new Snapshots());
     }
 }

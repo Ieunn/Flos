@@ -22,9 +22,11 @@ public interface IModule
 
     /// <summary>
     /// Called first in dependency order. Register services into the shared scope.
+    /// Pre-registered infrastructure (IWorld, IMessageBus, IScheduler, etc.) can be resolved here.
+    /// Other modules' services should only be resolved in <see cref="OnInitialize"/>.
     /// </summary>
-    /// <param name="scope">The load scope exposing registration and pre-registered infrastructure.</param>
-    void OnLoad(ILoadScope scope);
+    /// <param name="scope">The service registry for registration and resolving pre-registered services.</param>
+    void OnLoad(IServiceRegistry scope);
 
     /// <summary>
     /// Called after all modules are loaded and the scope is locked. Resolve cross-module services here.
