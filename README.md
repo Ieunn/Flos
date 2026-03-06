@@ -136,25 +136,15 @@ Flos runs a **tick loop**. Each tick, the Scheduler drains queued cross-thread a
 
 Add `Flos.Random` whenever game logic needs randomness. Add `Flos.Collections` if state slices use maps or sets. Add an adapter package (Console, Unity, Godot) to bridge engine lifecycle.
 
-## Build & Test
+## Build
 
 ```bash
 # Build source projects only
 dotnet build Flos.slnx
-
-# Build everything (source + tests)
-dotnet build Flos.Tests.slnx
-
-# Run all tests
-dotnet test Flos.Tests.slnx
-
-# Run a single test project
-dotnet test tests/Flos.Core.Tests/Flos.Core.Tests.csproj
 ```
 
 **Solution structure:**
 - `Flos.slnx` — source/shipping projects only (13 projects)
-- `Flos.Tests.slnx` — source + test projects (24 projects, used for development)
 - Unity and Godot adapter projects are compiled by their respective engines and excluded from both solutions
 
 ## Documentation
