@@ -77,11 +77,11 @@ public class GameModule : ModuleBase
 
     private IWorld _world = null!;
 
-    public override void OnLoad(ILoadScope scope)
+    public override void OnLoad(IServiceRegistry scope)
     {
         base.OnLoad(scope);
-        // IWorld is pre-registered by Session — access via scope.World
-        scope.World.Register(new GameState());
+        // IWorld is pre-registered by Session — resolve it to register state
+        Scope.Resolve<IWorld>().Register(new GameState());
     }
 
     public override void OnInitialize()
