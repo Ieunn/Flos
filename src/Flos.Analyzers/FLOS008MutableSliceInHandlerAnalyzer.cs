@@ -7,7 +7,7 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Flos.Analyzers;
 
 /// <summary>
-/// FLOS008: Mutable call on IStateSlice inside Handler → use IStateView.
+/// FLOS008: Mutable call on IStateSlice inside Handler → use IStateReader.
 /// Configurable severity (default: info).
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
@@ -16,7 +16,7 @@ public sealed class FLOS008MutableSliceInHandlerAnalyzer : DiagnosticAnalyzer
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticIds.FLOS008,
         title: "Mutable state slice access in handler",
-        messageFormat: "Avoid direct IWorld.Get<T>() in handlers; use IStateView for read-only access",
+        messageFormat: "Avoid direct IWorld.Get<T>() in handlers; use IStateReader for read-only access",
         category: "Architecture",
         defaultSeverity: DiagnosticSeverity.Info,
         isEnabledByDefault: true);
@@ -43,8 +43,8 @@ public sealed class FLOS008MutableSliceInHandlerAnalyzer : DiagnosticAnalyzer
         var method = symbolInfo.Symbol as IMethodSymbol;
         if (method is null) return;
 
-        var containingType = method.ContainingType?.ToDisplayString();
-        if (containingType == TypeNames.IWorld && method.Name == "Get")
+        var receiverType = ReceiverHelper.GetReceiverTypeString(invocation, context.SemanticModel);
+        if (receiverType == TypeNames.IWorld && method.Name == "Get")
         {
             context.ReportDiagnostic(Diagnostic.Create(Rule, invocation.GetLocation()));
         }

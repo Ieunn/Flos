@@ -19,7 +19,13 @@ public sealed class TypeResolverGenerator : IIncrementalGenerator
     {
         var typeInfos = context.SyntaxProvider
             .CreateSyntaxProvider(
-                predicate: static (node, _) => node is ClassDeclarationSyntax or StructDeclarationSyntax or RecordDeclarationSyntax,
+                predicate: static (node, _) =>
+                {
+                    if (node is ClassDeclarationSyntax cls) return cls.BaseList is not null;
+                    if (node is StructDeclarationSyntax str) return str.BaseList is not null;
+                    if (node is RecordDeclarationSyntax rec) return rec.BaseList is not null;
+                    return false;
+                },
                 transform: static (ctx, _) => GetTypeResolverEntry(ctx))
             .Where(static entry => entry is not null);
 
@@ -27,14 +33,18 @@ public sealed class TypeResolverGenerator : IIncrementalGenerator
 
         context.RegisterSourceOutput(collected, static (spc, entries) =>
         {
-            var validEntries = entries
-                .Where(e => e is not null)
-                .Select(e => e!)
-                .ToArray();
+            var seen = new Dictionary<string, TypeResolverEntry>();
+            foreach (var entry in entries)
+            {
+                if (entry is not null)
+                    seen[entry.FullTypeName] = entry;
+            }
 
+            var validEntries = seen.Values.ToArray();
             if (validEntries.Length == 0) return;
 
             var hashToType = new Dictionary<int, TypeResolverEntry>();
+            var collisions = new System.Collections.Generic.HashSet<int>();
             foreach (var entry in validEntries)
             {
                 if (hashToType.TryGetValue(entry.Hash, out var existing))
@@ -43,12 +53,18 @@ public sealed class TypeResolverGenerator : IIncrementalGenerator
                         GeneratorDiagnostics.HashCollision,
                         Location.None,
                         entry.FullTypeName, existing.FullTypeName, entry.Hash));
-                    return;
+                    collisions.Add(entry.Hash);
                 }
-                hashToType[entry.Hash] = entry;
+                else
+                {
+                    hashToType[entry.Hash] = entry;
+                }
             }
 
-            var source = GenerateTypeResolverSource(validEntries);
+            var safeEntries = validEntries.Where(e => !collisions.Contains(e.Hash)).ToArray();
+            if (safeEntries.Length == 0) return;
+
+            var source = GenerateTypeResolverSource(safeEntries);
             spc.AddSource("FlosTypeResolver.g.cs", source);
         });
     }

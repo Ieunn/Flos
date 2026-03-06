@@ -1,6 +1,6 @@
 # Flos.Adapter.Console
 
-Headless adapter for CLI testing and dedicated servers. Bridges `CoreLog` to `Console.Error`, reads stdin lines as `ConsoleInputMessage` via `IDispatcher`, and writes `ConsoleOutputMessage` to stdout.
+Headless adapter for CLI testing and dedicated servers. Bridges `CoreLog` to stderr, stdin to messages via `IDispatcher`, and messages to stdout.
 
 ## Installation
 
@@ -14,13 +14,11 @@ Headless adapter for CLI testing and dedicated servers. Bridges `CoreLog` to `Co
 var session = new Session();
 session.Initialize(new SessionConfig
 {
-    Modules = [new RandomModule(), new ConsoleAdapterModule(), /* game modules */],
+    Modules = [new ConsoleAdapterModule(), /* game modules */],
     TickMode = TickMode.StepBased,
-    RandomSeed = 42
 });
 session.Start();
 
-// Game loop
 while (running)
 {
     session.Scheduler.Step();
@@ -53,9 +51,9 @@ var module = new ConsoleAdapterModule(
 
 | Type | Description |
 |------|-------------|
-| `ConsoleAdapterModule` | Module that bridges CoreLog to stderr, stdin to `ConsoleInputMessage`, and `ConsoleOutputMessage` to stdout |
+| `ConsoleAdapterModule` | Bridges CoreLog to stderr, stdin to `ConsoleInputMessage`, `ConsoleOutputMessage` to stdout |
 | `ConsoleInputMessage` | `readonly record struct` published when a line is read from stdin |
-| `ConsoleOutputMessage` | `readonly record struct` -- publish to write a line to stdout |
+| `ConsoleOutputMessage` | `readonly record struct` — publish to write a line to stdout |
 
 ## Notes
 

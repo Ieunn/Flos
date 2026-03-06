@@ -2,70 +2,72 @@ using Flos.Core.Messaging;
 using Flos.Core.Module;
 using Flos.Core.Scheduling;
 using Flos.Core.State;
-using Flos.Snapshot;
 
 namespace Flos.Pattern.CQRS;
 
 /// <summary>Module that bootstraps the CQRS pattern. Registers the pipeline, handler registry, event journal, and CQRS middleware.</summary>
 public sealed class CQRSPatternModule : ModuleBase
 {
-    private IMessageBus? _bus;
-    private IPipeline? _pipeline;
-
     /// <inheritdoc />
     public override string Id => "CQRS";
 
     /// <inheritdoc />
-    public override IReadOnlyList<string> Dependencies => ["Snapshot"];
+    public override IReadOnlyList<string> Dependencies => Array.Empty<string>();
+
+    private IPipeline? _pipeline;
+    private IHandlerRegistry? _registry;
 
     /// <inheritdoc />
-    public override void OnLoad(IServiceScope scope)
+    public override void OnLoad(ILoadScope scope)
     {
         base.OnLoad(scope);
 
-        var patternRegistry = scope.Resolve<IPatternRegistry>();
-        patternRegistry.Register(CQRSPattern.Id);
+        scope.Patterns.Register(CQRSPattern.Id);
 
-        var config = new CQRSConfig();
-        scope.RegisterInstance(config);
+        scope.TryRegister(new CQRSConfig());
 
-        var journal = new EventJournal();
-        scope.RegisterInstance<IEventJournal>(journal);
-
-        if (!scope.IsRegistered<ICQRSAdapter>())
+        scope.Register<IEventJournal>(s =>
         {
-            scope.RegisterFactory<ICQRSAdapter>(s =>
-            {
-                var snapshotManager = s.Resolve<ISnapshotManager>();
-                var scheduler = s.Resolve<IScheduler>();
-                return new BuiltInCQRSAdapter(snapshotManager, journal, scheduler, config);
-            });
-        }
-
-        scope.RegisterFactory<IPipeline>(s =>
-        {
-            var adapter = s.Resolve<ICQRSAdapter>();
-            var bus = s.Resolve<IMessageBus>();
-            var world = s.Resolve<IWorld>();
-            return adapter.CreatePipeline(bus, world);
+            var config = s.Resolve<CQRSConfig>();
+            return new EventJournal { MaxEntries = config.MaxJournalEntries };
         });
 
-        scope.RegisterFactory<IHandlerRegistry>(s =>
+        scope.TryRegister<ICQRSAdapter>(s =>
         {
-            var pipeline = s.Resolve<IPipeline>();
-            if (pipeline is IHandlerRegistry registry)
-                return registry;
-            throw new InvalidOperationException("The CQRS pipeline does not implement IHandlerRegistry.");
+            s.TryResolve<IRollbackProvider>(out var rollbackProvider);
+            var config = s.Resolve<CQRSConfig>();
+            var journal = s.Resolve<IEventJournal>();
+            var scheduler = s.Resolve<IScheduler>();
+            return new BuiltInCQRSAdapter(rollbackProvider, journal, scheduler, config);
         });
+
+        scope.Register<IPipeline>(s =>
+        {
+            EnsurePipelineCreated(s);
+            return _pipeline!;
+        });
+
+        scope.Register<IHandlerRegistry>(s =>
+        {
+            EnsurePipelineCreated(s);
+            return _registry!;
+        });
+
+        // Register middleware early — the bus is already an instance in the scope at this point.
+        // The DeferredCQRSMiddleware delays pipeline resolution until the first command is received,
+        // ensuring the scope is locked and all factories are resolvable.
+        scope.Bus.Use(new DeferredCQRSMiddleware(Scope));
     }
 
-    /// <inheritdoc />
-    public override void OnInitialize()
+    private void EnsurePipelineCreated(IServiceRegistry scope)
     {
-        var scope = Scope!;
-        _bus = scope.Resolve<IMessageBus>();
-        _pipeline = scope.Resolve<IPipeline>();
+        if (_pipeline is not null) return;
 
-        _bus.Use(new CQRSMiddleware(_pipeline));
+        var adapter = scope.Resolve<ICQRSAdapter>();
+        var bus = scope.Resolve<IMessageBus>();
+        var world = scope.Resolve<IWorld>();
+        var result = adapter.CreatePipeline(bus, world);
+        _pipeline = result.Pipeline;
+        _registry = result.Registry;
     }
 }

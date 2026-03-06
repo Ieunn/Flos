@@ -23,7 +23,14 @@ public sealed class FLOS004FileNetworkIOAnalyzer : DiagnosticAnalyzer
     private static readonly ImmutableHashSet<string> FlaggedTypes = ImmutableHashSet.Create(
         TypeNames.File,
         TypeNames.Directory,
+        TypeNames.FileStream,
+        TypeNames.StreamReader,
+        TypeNames.StreamWriter,
+        TypeNames.FileInfo,
+        TypeNames.DirectoryInfo,
         TypeNames.Socket,
+        TypeNames.TcpClient,
+        TypeNames.UdpClient,
         TypeNames.HttpClient,
         TypeNames.WebRequest);
 

@@ -1,8 +1,10 @@
 using System;
 using System.IO;
+using System.Threading;
 using System.Threading.Tasks;
 using Flos.Adapter;
 using Flos.Core.Errors;
+using Flos.Core.Logging;
 using Flos.Core.Scheduling;
 using UnityEngine;
 
@@ -31,85 +33,103 @@ namespace Flos.Adapter.Unity
             _dispatcher = dispatcher;
         }
 
-        public void Save(string slot, byte[] data, Action<Result<Unit>> callback)
+        public void Save(string slot, ReadOnlyMemory<byte> data, Action<Result<Unit>> callback, CancellationToken cancellation = default)
         {
             var path = SlotPath(slot);
             var dispatcher = _dispatcher!;
             Task.Run(() =>
             {
+                if (cancellation.IsCancellationRequested) return;
                 try
                 {
                     var dir = Path.GetDirectoryName(path);
                     if (dir != null)
                         Directory.CreateDirectory(dir);
-                    File.WriteAllBytes(path, data);
-                    dispatcher.Enqueue(() => callback(Result<Unit>.Ok(Unit.Value)));
+                    using var fs = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
+                    fs.Write(data.Span);
+                    if (!cancellation.IsCancellationRequested)
+                        dispatcher.Enqueue(() => callback(Result<Unit>.Ok(Unit.Value)));
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    dispatcher.Enqueue(() => callback(Result<Unit>.Fail(AdapterErrors.SaveFailed)));
+                    CoreLog.Error($"Save failed for slot '{slot}': {ex.Message}");
+                    if (!cancellation.IsCancellationRequested)
+                        dispatcher.Enqueue(() => callback(Result<Unit>.Fail(AdapterErrors.SaveFailed)));
                 }
-            });
+            }, cancellation);
         }
 
-        public void Load(string slot, Action<Result<byte[]>> callback)
+        public void Load(string slot, Action<Result<byte[]>> callback, CancellationToken cancellation = default)
         {
             var path = SlotPath(slot);
             var dispatcher = _dispatcher!;
             Task.Run(() =>
             {
+                if (cancellation.IsCancellationRequested) return;
                 try
                 {
                     if (!File.Exists(path))
                     {
-                        dispatcher.Enqueue(() => callback(Result<byte[]>.Fail(AdapterErrors.SlotNotFound)));
+                        if (!cancellation.IsCancellationRequested)
+                            dispatcher.Enqueue(() => callback(Result<byte[]>.Fail(AdapterErrors.SlotNotFound)));
                         return;
                     }
                     var data = File.ReadAllBytes(path);
-                    dispatcher.Enqueue(() => callback(Result<byte[]>.Ok(data)));
+                    if (!cancellation.IsCancellationRequested)
+                        dispatcher.Enqueue(() => callback(Result<byte[]>.Ok(data)));
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    dispatcher.Enqueue(() => callback(Result<byte[]>.Fail(AdapterErrors.LoadFailed)));
+                    CoreLog.Error($"Load failed for slot '{slot}': {ex.Message}");
+                    if (!cancellation.IsCancellationRequested)
+                        dispatcher.Enqueue(() => callback(Result<byte[]>.Fail(AdapterErrors.LoadFailed)));
                 }
-            });
+            }, cancellation);
         }
 
-        public void Delete(string slot, Action<Result<Unit>> callback)
+        public void Delete(string slot, Action<Result<Unit>> callback, CancellationToken cancellation = default)
         {
             var path = SlotPath(slot);
             var dispatcher = _dispatcher!;
             Task.Run(() =>
             {
+                if (cancellation.IsCancellationRequested) return;
                 try
                 {
                     if (File.Exists(path))
                         File.Delete(path);
-                    dispatcher.Enqueue(() => callback(Result<Unit>.Ok(Unit.Value)));
+                    if (!cancellation.IsCancellationRequested)
+                        dispatcher.Enqueue(() => callback(Result<Unit>.Ok(Unit.Value)));
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    dispatcher.Enqueue(() => callback(Result<Unit>.Fail(AdapterErrors.DeleteFailed)));
+                    CoreLog.Error($"Delete failed for slot '{slot}': {ex.Message}");
+                    if (!cancellation.IsCancellationRequested)
+                        dispatcher.Enqueue(() => callback(Result<Unit>.Fail(AdapterErrors.DeleteFailed)));
                 }
-            });
+            }, cancellation);
         }
 
-        public void Exists(string slot, Action<Result<bool>> callback)
+        public void Exists(string slot, Action<Result<bool>> callback, CancellationToken cancellation = default)
         {
             var path = SlotPath(slot);
             var dispatcher = _dispatcher!;
             Task.Run(() =>
             {
+                if (cancellation.IsCancellationRequested) return;
                 try
                 {
                     var exists = File.Exists(path);
-                    dispatcher.Enqueue(() => callback(Result<bool>.Ok(exists)));
+                    if (!cancellation.IsCancellationRequested)
+                        dispatcher.Enqueue(() => callback(Result<bool>.Ok(exists)));
                 }
-                catch (Exception)
+                catch (Exception ex)
                 {
-                    dispatcher.Enqueue(() => callback(Result<bool>.Fail(AdapterErrors.LoadFailed)));
+                    CoreLog.Error($"Exists check failed for slot '{slot}': {ex.Message}");
+                    if (!cancellation.IsCancellationRequested)
+                        dispatcher.Enqueue(() => callback(Result<bool>.Fail(AdapterErrors.LoadFailed)));
                 }
-            });
+            }, cancellation);
         }
 
         private string SlotPath(string slot) => Path.Combine(_basePath, slot + ".sav");

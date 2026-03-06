@@ -13,8 +13,10 @@ public interface ICQRSAdapter
 {
     /// <summary>
     /// Creates the CQRS pipeline. The module registers the returned pipeline as
-    /// <see cref="IPipeline"/>. If the pipeline also implements <see cref="IHandlerRegistry"/>,
-    /// it is additionally registered as <c>IHandlerRegistry</c>.
+    /// <see cref="IPipeline"/> and the returned registry as <see cref="IHandlerRegistry"/>.
     /// </summary>
-    IPipeline CreatePipeline(IMessageBus bus, IWorld world);
+    /// <param name="bus">The session's message bus.</param>
+    /// <param name="world">The session's world state.</param>
+    /// <returns>A tuple of the pipeline and handler registry. Both may be the same object.</returns>
+    (IPipeline Pipeline, IHandlerRegistry Registry) CreatePipeline(IMessageBus bus, IWorld world);
 }

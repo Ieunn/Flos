@@ -4,6 +4,13 @@ namespace Flos.Core.Errors;
 /// A discriminated-union result type that holds either a success value of type <typeparamref name="T"/>
 /// or a failure <see cref="ErrorCode"/>. Used for expected domain failures instead of exceptions.
 /// </summary>
+/// <remarks>
+/// <para>
+/// Wondering why you see compiler error CS0457 (ambiguous conversion)? Here's solution:
+/// If you really need to return T as ErrorCode (why are you doing that?),
+/// explicitly use Result<ErrorCode>.Ok(value) and Result<ErrorCode>.Fail(value) to avoid ambiguous conversion.
+/// </para>
+/// </remarks>
 /// <typeparam name="T">The type of the success value.</typeparam>
 public readonly record struct Result<T>
 {
@@ -18,16 +25,16 @@ public readonly record struct Result<T>
     /// <summary>
     /// Gets the success value.
     /// </summary>
-    /// <exception cref="FlosException">Thrown when <see cref="IsSuccess"/> is <see langword="false"/>.</exception>
+    /// <exception cref="FlosException">Thrown with <see cref="CoreErrors.InvalidResultAccess"/> when <see cref="IsSuccess"/> is <see langword="false"/>.</exception>
     public T Value => IsSuccess
-        ? _value! : throw new FlosException(_error, "Accessed Value on failed Result.");
+        ? _value! : throw new FlosException(CoreErrors.InvalidResultAccess, $"Accessed Value on failed Result. Error: {_error}");
 
     /// <summary>
     /// Gets the <see cref="ErrorCode"/> describing the failure.
     /// </summary>
-    /// <exception cref="InvalidOperationException">Thrown when <see cref="IsSuccess"/> is <see langword="true"/>.</exception>
+    /// <exception cref="FlosException">Thrown with <see cref="CoreErrors.InvalidResultAccess"/> when <see cref="IsSuccess"/> is <see langword="true"/>.</exception>
     public ErrorCode Error => !IsSuccess
-        ? _error : throw new InvalidOperationException("Accessed Error on successful Result.");
+        ? _error : throw new FlosException(CoreErrors.InvalidResultAccess, "Accessed Error on successful Result.");
 
     private Result(T value) { IsSuccess = true; _value = value; _error = default; }
     private Result(ErrorCode error) { IsSuccess = false; _value = default; _error = error; }
@@ -83,4 +90,13 @@ public readonly record struct Result<T>
     /// </summary>
     /// <param name="error">The error code.</param>
     public static implicit operator Result<T>(ErrorCode error) => Fail(error);
+
+    /// <summary>
+    /// Implicitly converts a <see cref="Success{T}"/> to a successful result.
+    /// Enables ergonomic success returns: <c>return value;</c>
+    /// </summary>
+    /// <param name="value">The returned value.</param>
+    public static implicit operator Result<T>(T value) => Ok(value);
+
+    public override string ToString() => IsSuccess ? $"Ok({_value})" : $"Fail({_error})";
 }

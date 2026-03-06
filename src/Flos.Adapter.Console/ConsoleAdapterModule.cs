@@ -45,7 +45,7 @@ public sealed class ConsoleAdapterModule : ModuleBase
         _stderr = stderr;
     }
 
-    public override void OnLoad(IServiceScope scope)
+    public override void OnLoad(ILoadScope scope)
     {
         base.OnLoad(scope);
 
@@ -79,6 +79,13 @@ public sealed class ConsoleAdapterModule : ModuleBase
         _running = false;
         _outputSubscription?.Dispose();
         _outputSubscription = null;
+
+        if (_inputThread is not null && _inputThread.IsAlive)
+        {
+            _inputThread.Join(millisecondsTimeout: 500);
+        }
+        _inputThread = null;
+
         CoreLog.Handler = null;
     }
 
@@ -96,7 +103,11 @@ public sealed class ConsoleAdapterModule : ModuleBase
             {
                 line = _stdin.ReadLine();
             }
-            catch
+            catch (IOException)
+            {
+                break;
+            }
+            catch (ObjectDisposedException)
             {
                 break;
             }

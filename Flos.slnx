@@ -7,7 +7,6 @@
     <Project Path="src/Flos.Random/Flos.Random.csproj" />
     <Project Path="src/Flos.Snapshot/Flos.Snapshot.csproj" />
     <Project Path="src/Flos.Pattern.CQRS/Flos.Pattern.CQRS.csproj" />
-    <Project Path="src/Flos.Testing/Flos.Testing.csproj" />
     <Project Path="src/Flos.Analyzers/Flos.Analyzers.csproj" />
     <Project Path="src/Flos.Generators/Flos.Generators.csproj" />
     <Project Path="src/Flos.Serialization/Flos.Serialization.csproj" />

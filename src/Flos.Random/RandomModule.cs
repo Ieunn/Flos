@@ -1,25 +1,29 @@
 using Flos.Core.Module;
-using Flos.Core.Sessions;
 
 namespace Flos.Random;
 
 /// <summary>
-/// Module that registers an <see cref="IRandom"/> implementation seeded from <see cref="SessionConfig.RandomSeed"/>.
+/// Module that registers an <see cref="IRandom"/> implementation seeded from the provided seed value.
 /// </summary>
 public sealed class RandomModule : ModuleBase
 {
+    private readonly int _seed;
+
+    /// <summary>Creates a RandomModule with the specified seed.</summary>
+    /// <param name="seed">The seed for the deterministic random number generator.</param>
+    public RandomModule(int seed) => _seed = seed;
+
     /// <inheritdoc />
     public override string Id => "Random";
 
     /// <summary>
     /// Registers a seeded <see cref="Xoshiro256StarStarRandom"/> as <see cref="IRandom"/>.
     /// </summary>
-    public override void OnLoad(IServiceScope scope)
+    public override void OnLoad(ILoadScope scope)
     {
         base.OnLoad(scope);
-        var config = scope.Resolve<SessionConfig>();
         var rng = new Xoshiro256StarStarRandom();
-        rng.SetSeed(config.RandomSeed);
-        scope.RegisterInstance<IRandom>(rng);
+        rng.SetSeed(_seed);
+        scope.Register<IRandom>(rng);
     }
 }

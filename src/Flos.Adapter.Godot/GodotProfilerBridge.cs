@@ -7,25 +7,17 @@ namespace Flos.Adapter.Godot;
 /// Bridges <see cref="IProfiler"/> to a Stopwatch-based implementation.
 /// Godot lacks Unity's ProfilerMarker API, so we measure named spans with
 /// <see cref="Stopwatch"/> and log elapsed time when <c>FLOS_PROFILING</c> is defined.
-/// Caches stopwatch instances per name to reduce allocations.
+/// Each <see cref="BeginSample"/> creates a fresh Stopwatch to support nested/re-entrant calls.
 /// </summary>
 public sealed class GodotProfilerBridge : IProfiler
 {
-    private readonly Dictionary<string, Stopwatch> _stopwatches = new();
-
     public IDisposable BeginSample(string name)
     {
-        if (!_stopwatches.TryGetValue(name, out var sw))
-        {
-            sw = new Stopwatch();
-            _stopwatches[name] = sw;
-        }
-
-        sw.Restart();
+        var sw = Stopwatch.StartNew();
         return new StopwatchScope(name, sw);
     }
 
-    private readonly struct StopwatchScope : IDisposable
+    private sealed class StopwatchScope : IDisposable
     {
         private readonly string _name;
         private readonly Stopwatch _stopwatch;

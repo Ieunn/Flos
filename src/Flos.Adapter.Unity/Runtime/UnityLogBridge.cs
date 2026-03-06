@@ -14,7 +14,10 @@ namespace Flos.Adapter.Unity
         {
             switch (level)
             {
-                case LogLevel.Log:
+                case LogLevel.Debug:
+                    UnityEngine.Debug.Log($"[Flos:Debug] {message}");
+                    break;
+                case LogLevel.Info:
                     UnityEngine.Debug.Log($"[Flos] {message}");
                     break;
                 case LogLevel.Warn:

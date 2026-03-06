@@ -31,9 +31,9 @@ public interface ISession : IDisposable
     IMessageBus MessageBus { get; }
 
     /// <summary>
-    /// The session's root service scope.
+    /// The session's root service registry.
     /// </summary>
-    IServiceScope RootScope { get; }
+    IServiceRegistry RootScope { get; }
 
     /// <summary>
     /// Loads modules, registers core services, and transitions to <see cref="SessionState.Initializing"/>.
@@ -44,7 +44,7 @@ public interface ISession : IDisposable
     void Initialize(SessionConfig config);
 
     /// <summary>
-    /// Transitions from <see cref="SessionState.Initializing"/> to <see cref="SessionState.Running"/>.
+    /// Transitions from <see cref="SessionState.Initialized"/> to <see cref="SessionState.Running"/>.
     /// Calls <see cref="Module.IModule.OnStart"/> on all modules and publishes <see cref="SessionStartedMessage"/>.
     /// </summary>
     void Start();
@@ -62,7 +62,7 @@ public interface ISession : IDisposable
     void Resume();
 
     /// <summary>
-    /// Shuts down all modules in reverse order and publishes <see cref="SessionShutdownMessage"/>.
+    /// Publishes <see cref="SessionShutdownMessage"/>, then shuts down all modules in reverse dependency order.
     /// </summary>
     void Shutdown();
 }

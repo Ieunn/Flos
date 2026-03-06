@@ -1,4 +1,4 @@
-using System.Diagnostics;
+using System.Collections;
 using System.Runtime.CompilerServices;
 using Flos.Core.Errors;
 using Flos.Core.Logging;
@@ -12,16 +12,13 @@ namespace Flos.Core.State;
 /// </summary>
 public sealed class World : IWorld
 {
-    private readonly List<Type> _types = [];
-    private readonly List<IStateSlice> _slices = [];
-    private readonly int _ownerThreadId = Environment.CurrentManagedThreadId;
+    private readonly List<SliceEntry> _entries = new List<SliceEntry>();
+    private readonly TypeProjection _typeProjection;
+    private readonly ThreadGuard _threadGuard = new("World");
 
-    [Conditional("DEBUG")]
-    private void AssertMainThread([CallerMemberName] string? caller = null)
+    public World()
     {
-        Debug.Assert(Environment.CurrentManagedThreadId == _ownerThreadId,
-            $"World.{caller}() called from thread {Environment.CurrentManagedThreadId}, " +
-            $"expected main thread {_ownerThreadId}. Use IDispatcher.Enqueue() for cross-thread access.");
+        _typeProjection = new TypeProjection(_entries);
     }
 
     /// <summary>
@@ -34,14 +31,31 @@ public sealed class World : IWorld
     /// </exception>
     public T Get<T>() where T : class, IStateSlice
     {
-        AssertMainThread();
+        _threadGuard.Assert();
         var target = typeof(T);
-        for (int i = 0; i < _types.Count; i++)
+        for (int i = 0; i < _entries.Count; i++)
         {
-            if (_types[i] == target)
-                return (T)_slices[i];
+            if (_entries[i].Type == target)
+                return (T)_entries[i].Slice;
         }
         throw new FlosException(CoreErrors.SliceNotFound, $"State slice '{typeof(T).Name}' is not registered.");
+    }
+
+    /// <inheritdoc />
+    public bool TryGet<T>(out T? value) where T : class, IStateSlice
+    {
+        _threadGuard.Assert();
+        var target = typeof(T);
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            if (_entries[i].Type == target)
+            {
+                value = (T)_entries[i].Slice;
+                return true;
+            }
+        }
+        value = null;
+        return false;
     }
 
     /// <summary>
@@ -52,19 +66,40 @@ public sealed class World : IWorld
     /// <param name="initialState">The initial state slice instance to register.</param>
     public void Register<T>(T initialState) where T : class, IStateSlice
     {
-        AssertMainThread();
+        _threadGuard.Assert();
         var type = typeof(T);
-        for (int i = 0; i < _types.Count; i++)
+        for (int i = 0; i < _entries.Count; i++)
         {
-            if (_types[i] == type)
+            if (_entries[i].Type == type)
             {
                 CoreLog.Warn($"State slice '{type.Name}' is already registered. Overwriting.");
-                _slices[i] = initialState;
+                var old = _entries[i].Slice;
+                _entries[i] = new SliceEntry(type, initialState);
+                DisposeSlice(old);
                 return;
             }
         }
-        _types.Add(type);
-        _slices.Add(initialState);
+        _entries.Add(new SliceEntry(type, initialState));
+    }
+    
+    /// <summary>
+    /// Unregister certain type of state slice.
+    /// </summary>
+    /// <typeparam name="T">The slice type to be unregistered.</typeparam>
+    public void Unregister<T>() where T : class, IStateSlice
+    {
+        _threadGuard.Assert();
+        var type = typeof(T);
+        for (int i = 0; i < _entries.Count; i++)
+        {
+            if (_entries[i].Type == type)
+            {
+                var old = _entries[i].Slice;
+                _entries.RemoveAt(i);
+                DisposeSlice(old);
+                return;
+            }
+        }
     }
 
     /// <summary>
@@ -77,11 +112,11 @@ public sealed class World : IWorld
     /// </exception>
     public IStateSlice GetSlice(Type type)
     {
-        AssertMainThread();
-        for (int i = 0; i < _types.Count; i++)
+        _threadGuard.Assert();
+        for (int i = 0; i < _entries.Count; i++)
         {
-            if (_types[i] == type)
-                return _slices[i];
+            if (_entries[i].Type == type)
+                return _entries[i].Slice;
         }
         throw new FlosException(CoreErrors.SliceNotFound, $"State slice '{type.Name}' is not registered.");
     }
@@ -96,12 +131,14 @@ public sealed class World : IWorld
     /// </exception>
     public void SetSlice(Type type, IStateSlice slice)
     {
-        AssertMainThread();
-        for (int i = 0; i < _types.Count; i++)
+        _threadGuard.Assert();
+        for (int i = 0; i < _entries.Count; i++)
         {
-            if (_types[i] == type)
+            if (_entries[i].Type == type)
             {
-                _slices[i] = slice;
+                var old = _entries[i].Slice;
+                _entries[i] = new SliceEntry(type, slice);
+                DisposeSlice(old);
                 return;
             }
         }
@@ -111,5 +148,70 @@ public sealed class World : IWorld
     /// <summary>
     /// Types of all registered slices, in registration order.
     /// </summary>
-    public IReadOnlyList<Type> RegisteredTypes => _types;
+    public IReadOnlyList<Type> RegisteredTypes => _typeProjection;
+
+    private static void DisposeSlice(IStateSlice slice)
+    {
+        if (slice is IDisposable disposable)
+            disposable.Dispose();
+    }
+
+    internal record struct SliceEntry(Type Type, IStateSlice Slice);
+
+    /// <summary>
+    /// Zero-allocation read-only projection that presents
+    /// <see cref="SliceEntry.Type"/> as an <see cref="IReadOnlyList{Type}"/>.
+    /// Backed directly by the entries list.
+    /// Boxing occurs when explicitly use IEnumerable.
+    /// </summary>
+    internal sealed class TypeProjection : IReadOnlyList<Type>
+    {
+        private readonly List<SliceEntry> _source;
+
+        internal TypeProjection(List<SliceEntry> source) => _source = source;
+
+        public int Count => _source.Count;
+        public Type this[int index] => _source[index].Type;
+
+        public Enumerator GetEnumerator() => new(_source);
+
+        IEnumerator<Type> IEnumerable<Type>.GetEnumerator() => new EnumeratorObject(_source);
+        IEnumerator IEnumerable.GetEnumerator() => new EnumeratorObject(_source);
+
+        public struct Enumerator
+        {
+            private readonly List<SliceEntry> _source;
+            private readonly int _count;
+            private int _index;
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            internal Enumerator(List<SliceEntry> source)
+            {
+                _source = source;
+                _count = source.Count;
+                _index = -1;
+            }
+
+            public Type Current
+            {
+                [MethodImpl(MethodImplOptions.AggressiveInlining)]
+                get => _source[_index].Type;
+            }
+
+            [MethodImpl(MethodImplOptions.AggressiveInlining)]
+            public bool MoveNext() => ++_index < _count;
+        }
+
+        private sealed class EnumeratorObject(List<SliceEntry> source) : IEnumerator<Type>
+        {
+            private int _index = -1;
+            private readonly int _count = source.Count;
+
+            public Type Current => source[_index].Type;
+            object IEnumerator.Current => Current;
+            public bool MoveNext() => ++_index < _count;
+            public void Reset() => _index = -1;
+            public void Dispose() { }
+        }
+    }
 }

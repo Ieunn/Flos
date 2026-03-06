@@ -1,3 +1,5 @@
+using Flos.Core.State;
+
 namespace Flos.Pattern.CQRS;
 
 /// <summary>Registration point for command handlers and event appliers.</summary>
@@ -14,5 +16,5 @@ public interface IHandlerRegistry
     /// <param name="applier">The event applier to register.</param>
     void Register<TEvent, TState>(IEventApplier<TEvent, TState> applier)
         where TEvent : IEvent
-        where TState : class, Flos.Core.State.IStateSlice;
+        where TState : class, IStateSlice;
 }

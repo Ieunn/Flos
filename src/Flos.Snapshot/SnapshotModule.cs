@@ -3,7 +3,7 @@ using Flos.Core.Module;
 namespace Flos.Snapshot;
 
 /// <summary>
-/// Module that registers the <see cref="ISnapshotManager"/> service.
+/// Module that registers the <see cref="ISnapshots"/> service.
 /// </summary>
 public sealed class SnapshotModule : ModuleBase
 {
@@ -11,12 +11,12 @@ public sealed class SnapshotModule : ModuleBase
     public override string Id => "Snapshot";
 
     /// <inheritdoc />
-    public override IReadOnlyList<string> Dependencies => [];
+    public override IReadOnlyList<string> Dependencies => Array.Empty<string>();
 
     /// <inheritdoc />
-    public override void OnLoad(IServiceScope scope)
+    public override void OnLoad(ILoadScope scope)
     {
         base.OnLoad(scope);
-        scope.RegisterInstance<ISnapshotManager>(new SnapshotManager());
+        scope.Register<ISnapshots>(new Snapshots());
     }
 }

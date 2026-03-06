@@ -14,7 +14,10 @@ public static class GodotLogBridge
     {
         switch (level)
         {
-            case LogLevel.Log:
+            case LogLevel.Debug:
+                GD.Print($"[Flos:Debug] {message}");
+                break;
+            case LogLevel.Info:
                 GD.Print($"[Flos] {message}");
                 break;
             case LogLevel.Warn:

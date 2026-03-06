@@ -16,4 +16,12 @@ public interface IDispatcher
     /// Executes and removes all queued actions. Called by the scheduler before each tick.
     /// </summary>
     void DrainAll();
+
+    /// <summary>
+    /// Optional callback invoked when a dispatched action throws.
+    /// If <see langword="null"/> (default), exceptions are collected and rethrown as <see cref="Errors.FlosException"/>
+    /// after all queued actions have run.
+    /// Set this to a custom callback to handle exceptions differently (e.g., log-and-continue).
+    /// </summary>
+    Action<Exception>? OnActionException { get; set; }
 }

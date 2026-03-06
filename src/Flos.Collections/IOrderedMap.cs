@@ -5,6 +5,7 @@ namespace Flos.Collections;
 /// Replaces Dictionary/HashSet in IStateSlice fields for determinism (FLOS005).
 /// </summary>
 public interface IOrderedMap<TKey, TValue> : IEnumerable<KeyValuePair<TKey, TValue>>
+    where TKey : IComparable<TKey>
 {
     int Count { get; }
     TValue this[TKey key] { get; set; }

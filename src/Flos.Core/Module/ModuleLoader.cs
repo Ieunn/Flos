@@ -20,7 +20,11 @@ public static class ModuleLoader
         var byId = new Dictionary<string, IModule>(modules.Count);
         foreach (var m in modules)
         {
-            byId[m.Id] = m;
+            if (!byId.TryAdd(m.Id, m))
+            {
+                throw new FlosException(CoreErrors.InitializationFailed,
+                    $"Duplicate module ID '{m.Id}'. Each module must have a unique Id.");
+            }
         }
 
         var sorted = new List<IModule>(modules.Count);

@@ -8,6 +8,7 @@ namespace Flos.Adapter.Unity
     /// <summary>
     /// Bridges <see cref="IProfiler"/> to Unity's <see cref="ProfilerMarker"/>.
     /// Caches markers by name to avoid repeated allocations.
+    /// Uses a sealed class scope to avoid boxing allocation when returned as IDisposable.
     /// </summary>
     public sealed class UnityProfilerBridge : IProfiler
     {
@@ -25,7 +26,7 @@ namespace Flos.Adapter.Unity
             return new MarkerScope(marker);
         }
 
-        private readonly struct MarkerScope : IDisposable
+        private sealed class MarkerScope : IDisposable
         {
             private readonly ProfilerMarker _marker;
 

@@ -7,13 +7,13 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Flos.Analyzers;
 
 /// <summary>
-/// FLOS012: Allocation in [HotPath] code (yield return, closure, LINQ, boxing).
+/// FLOS011: Allocation in [HotPath] code (yield return, closure, LINQ, boxing, array, string interpolation).
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
-public sealed class FLOS012AllocationInHotPathAnalyzer : DiagnosticAnalyzer
+public sealed class FLOS011AllocationInHotPathAnalyzer : DiagnosticAnalyzer
 {
     private static readonly DiagnosticDescriptor Rule = new(
-        DiagnosticIds.FLOS012,
+        DiagnosticIds.FLOS011,
         title: "Allocation in [HotPath] code",
         messageFormat: "Allocation detected in [HotPath] code: {0}",
         category: "Performance",
@@ -39,6 +39,12 @@ public sealed class FLOS012AllocationInHotPathAnalyzer : DiagnosticAnalyzer
         context.RegisterSyntaxNodeAction(AnalyzeInvocation, SyntaxKind.InvocationExpression);
 
         context.RegisterSyntaxNodeAction(AnalyzeObjectCreation, SyntaxKind.ObjectCreationExpression);
+        context.RegisterSyntaxNodeAction(AnalyzeObjectCreation, SyntaxKind.ImplicitObjectCreationExpression);
+
+        context.RegisterSyntaxNodeAction(AnalyzeArrayCreation, SyntaxKind.ArrayCreationExpression);
+        context.RegisterSyntaxNodeAction(AnalyzeArrayCreation, SyntaxKind.ImplicitArrayCreationExpression);
+
+        context.RegisterSyntaxNodeAction(AnalyzeInterpolatedString, SyntaxKind.InterpolatedStringExpression);
     }
 
     private static void AnalyzeYieldReturn(SyntaxNodeAnalysisContext context)
@@ -54,7 +60,16 @@ public sealed class FLOS012AllocationInHotPathAnalyzer : DiagnosticAnalyzer
         if (!ScopeHelper.IsInHotPathContext(context.Node, context.SemanticModel)) return;
 
         var lambda = (LambdaExpressionSyntax)context.Node;
-        var dataFlow = context.SemanticModel.AnalyzeDataFlow(lambda.Body);
+
+        DataFlowAnalysis? dataFlow = null;
+        if (lambda.Body is ExpressionSyntax expr)
+        {
+            dataFlow = context.SemanticModel.AnalyzeDataFlow(expr);
+        }
+        else if (lambda.Body is BlockSyntax block && block.Statements.Count > 0)
+        {
+            dataFlow = context.SemanticModel.AnalyzeDataFlow(block.Statements.First(), block.Statements.Last());
+        }
 
         if (dataFlow is not null && dataFlow.Succeeded && dataFlow.Captured.Length > 0)
         {
@@ -94,7 +109,7 @@ public sealed class FLOS012AllocationInHotPathAnalyzer : DiagnosticAnalyzer
     {
         if (!ScopeHelper.IsInHotPathContext(context.Node, context.SemanticModel)) return;
 
-        var creation = (ObjectCreationExpressionSyntax)context.Node;
+        var creation = (ExpressionSyntax)context.Node;
         var typeInfo = context.SemanticModel.GetTypeInfo(creation, context.CancellationToken);
         if (typeInfo.Type is null) return;
 
@@ -103,5 +118,21 @@ public sealed class FLOS012AllocationInHotPathAnalyzer : DiagnosticAnalyzer
             context.ReportDiagnostic(Diagnostic.Create(Rule, creation.GetLocation(),
                 $"'new {typeInfo.Type.Name}()' allocates on the heap"));
         }
+    }
+
+    private static void AnalyzeArrayCreation(SyntaxNodeAnalysisContext context)
+    {
+        if (!ScopeHelper.IsInHotPathContext(context.Node, context.SemanticModel)) return;
+
+        context.ReportDiagnostic(Diagnostic.Create(Rule, context.Node.GetLocation(),
+            "array creation allocates on the heap"));
+    }
+
+    private static void AnalyzeInterpolatedString(SyntaxNodeAnalysisContext context)
+    {
+        if (!ScopeHelper.IsInHotPathContext(context.Node, context.SemanticModel)) return;
+
+        context.ReportDiagnostic(Diagnostic.Create(Rule, context.Node.GetLocation(),
+            "string interpolation allocates a new string"));
     }
 }

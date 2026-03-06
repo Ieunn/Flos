@@ -20,7 +20,7 @@ public interface IScheduler
     /// Only valid in <see cref="TickMode.FixedTick"/> mode.
     /// </summary>
     /// <param name="deltaTime">Elapsed real time in seconds since the last call.</param>
-    void Tick(float deltaTime);
+    void Tick(double deltaTime);
 
     /// <summary>
     /// The number of ticks fired since session start.
@@ -28,9 +28,11 @@ public interface IScheduler
     long CurrentTick { get; }
 
     /// <summary>
-    /// Total simulated time in seconds.
+    /// Total simulated time in seconds. Only meaningful in <see cref="TickMode.FixedTick"/> mode.
+    /// Returns 0 in <see cref="TickMode.StepBased"/> mode since steps have no time dimension.
+    /// Uses <c>double</c> to maintain precision over long play sessions.
     /// </summary>
-    float ElapsedTime { get; }
+    double ElapsedTime { get; }
 
     /// <summary>
     /// Maximum ticks per frame to prevent spiral-of-death in FixedTick mode.

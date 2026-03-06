@@ -22,7 +22,8 @@ public interface IECSAdapter
     /// Drives the adapter's internal system scheduler for one tick.
     /// Called from the ECS module's TickMessage handler.
     /// </summary>
-    void Tick(float deltaTime);
+    /// <param name="deltaTime">Elapsed simulation time in seconds for this tick.</param>
+    void Tick(double deltaTime);
 
     /// <summary>
     /// Shuts down the ECS world and releases resources.

@@ -22,8 +22,6 @@
       href: ../src/Flos.Pattern.CQRS/README.md
     - name: Flos.Pattern.ECS
       href: ../src/Flos.Pattern.ECS/README.md
-    - name: Flos.Testing
-      href: ../src/Flos.Testing/README.md
     - name: Flos.Analyzers
       href: ../src/Flos.Analyzers/README.md
     - name: Flos.Generators

@@ -12,6 +12,15 @@ public sealed class Xoshiro256StarStarRandom : IRandom
     private ulong _s0, _s1, _s2, _s3;
 
     /// <summary>
+    /// Creates a new instance with seed 0 (produces a valid non-zero state via SplitMix64).
+    /// Call <see cref="SetSeed"/> to reinitialize with a different seed.
+    /// </summary>
+    public Xoshiro256StarStarRandom()
+    {
+        SetSeed(0);
+    }
+
+    /// <summary>
     /// Returns 32 (4 x 8 bytes).
     /// </summary>
     public int StateSize => 32;

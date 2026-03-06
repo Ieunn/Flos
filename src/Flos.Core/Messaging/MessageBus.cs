@@ -1,4 +1,3 @@
-using System.Diagnostics;
 using System.Runtime.CompilerServices;
 using Flos.Core.Annotations;
 using Flos.Core.Errors;
@@ -9,21 +8,20 @@ namespace Flos.Core.Messaging;
 /// <summary>
 /// Default implementation of <see cref="IMessageBus"/> with priority-ordered subscriptions and middleware pipeline.
 /// </summary>
-public sealed class MessageBus : IMessageBus
+public sealed class MessageBus : IMessageBus, IDisposable
 {
-    private readonly Dictionary<Type, object> _subscriptionLists = [];
-    private readonly List<IMessageMiddleware> _middlewares = [];
-    private readonly Dictionary<Type, Delegate> _chainCache = [];
+    private readonly Dictionary<Type, object> _subscriptionLists = new Dictionary<Type, object>();
+    private readonly List<IMessageMiddleware> _middlewares = new List<IMessageMiddleware>();
+    private readonly Dictionary<Type, object> _runnerCache = new Dictionary<Type, object>();
     private bool _hasPublished;
-    private readonly int _ownerThreadId = Environment.CurrentManagedThreadId;
+    private readonly ThreadGuard _threadGuard = new("MessageBus");
 
-    [Conditional("DEBUG")]
-    private void AssertMainThread([CallerMemberName] string? caller = null)
-    {
-        Debug.Assert(Environment.CurrentManagedThreadId == _ownerThreadId,
-            $"MessageBus.{caller}() called from thread {Environment.CurrentManagedThreadId}, " +
-            $"expected main thread {_ownerThreadId}. Use IDispatcher.Enqueue() for cross-thread access.");
-    }
+    /// <summary>
+    /// Optional callback invoked when a handler throws during <see cref="Publish{T}"/>.
+    /// If <see langword="null"/> (default), the first exception is collected and rethrown after all handlers have run.
+    /// Set this to a custom callback to handle exceptions differently (e.g., log-and-continue).
+    /// </summary>
+    public Action<Exception>? OnHandlerException { get; set; }
 
     /// <summary>
     /// Registers a middleware interceptor that is invoked for every published message before it reaches subscribers.
@@ -32,12 +30,13 @@ public sealed class MessageBus : IMessageBus
     /// <param name="middleware">The middleware to add to the pipeline.</param>
     public void Use(IMessageMiddleware middleware)
     {
+        _threadGuard.Assert();
         if (_hasPublished)
         {
-            Logging.CoreLog.Warn("Middleware added after the first Publish() call. This may cause inconsistent message handling.");
+            CoreLog.Warn("Middleware added after the first Publish() call. This may cause inconsistent message handling.");
         }
         _middlewares.Add(middleware);
-        _chainCache.Clear();
+        _runnerCache.Clear();
     }
 
     /// <summary>
@@ -47,10 +46,10 @@ public sealed class MessageBus : IMessageBus
     /// <typeparam name="T">The type of message to subscribe to.</typeparam>
     /// <param name="handler">The callback invoked when a message of type <typeparamref name="T"/> is published.</param>
     /// <param name="priority">Subscription priority; lower values execute first. Defaults to 0.</param>
-    /// <returns>An integer subscription ID.</returns>
-    public int Subscribe<T>(Action<T> handler, int priority = 0) where T : IMessage
+    /// <returns>A long subscription ID.</returns>
+    public long Subscribe<T>(Action<T> handler, int priority = 0) where T : IMessage
     {
-        AssertMainThread();
+        _threadGuard.Assert();
         var list = GetOrCreateList<T>();
         return list.AddWithId(handler, priority);
     }
@@ -60,8 +59,9 @@ public sealed class MessageBus : IMessageBus
     /// </summary>
     /// <typeparam name="T">The message type the subscription was registered for.</typeparam>
     /// <param name="subscriptionId">The ID returned by <see cref="Subscribe{T}"/>.</param>
-    public void Unsubscribe<T>(int subscriptionId) where T : IMessage
+    public void Unsubscribe<T>(long subscriptionId) where T : IMessage
     {
+        _threadGuard.Assert();
         var list = GetListOrNull<T>();
         list?.Remove(subscriptionId);
     }
@@ -76,7 +76,7 @@ public sealed class MessageBus : IMessageBus
     /// <returns>An <see cref="IDisposable"/> token that removes the subscription when disposed.</returns>
     public IDisposable Listen<T>(Action<T> handler, int priority = 0) where T : IMessage
     {
-        AssertMainThread();
+        _threadGuard.Assert();
         var list = GetOrCreateList<T>();
         return list.Add(handler, priority);
     }
@@ -88,7 +88,7 @@ public sealed class MessageBus : IMessageBus
     /// <param name="message">The message instance to publish.</param>
     public void Publish<T>(T message) where T : IMessage
     {
-        AssertMainThread();
+        _threadGuard.Assert();
         _hasPublished = true;
 
         if (_middlewares.Count == 0)
@@ -97,36 +97,29 @@ public sealed class MessageBus : IMessageBus
         }
         else
         {
-            var chain = GetOrBuildChain<T>();
-            chain(message);
+            var runner = GetOrBuildRunner<T>();
+            runner.Start(message);
         }
     }
 
-    private Action<T> GetOrBuildChain<T>() where T : IMessage
+    private MiddlewareRunner<T> GetOrBuildRunner<T>() where T : IMessage
     {
         var key = typeof(T);
-        if (_chainCache.TryGetValue(key, out var cached))
+        if (_runnerCache.TryGetValue(key, out var cached))
         {
-            return Unsafe.As<Action<T>>(cached);
+            return Unsafe.As<MiddlewareRunner<T>>(cached);
         }
 
-        Action<T> chain = DispatchDirect;
-        for (int i = _middlewares.Count - 1; i >= 0; i--)
-        {
-            var mw = _middlewares[i];
-            var prev = chain;
-            chain = msg => mw.Handle(msg, prev);
-        }
-
-        _chainCache[key] = chain;
-        return chain;
+        var runner = new MiddlewareRunner<T>(this);
+        _runnerCache[key] = runner;
+        return runner;
     }
 
     [HotPath]
     private void DispatchDirect<T>(T message) where T : IMessage
     {
         var list = GetListOrNull<T>();
-        list?.Dispatch(message);
+        list?.Dispatch(message, OnHandlerException);
     }
 
     private SubscriptionList<T> GetOrCreateList<T>() where T : IMessage
@@ -152,6 +145,26 @@ public sealed class MessageBus : IMessageBus
     }
 
     /// <summary>
+    /// Clears all subscriptions, middleware, and cached chains.
+    /// Disposes any middleware that implements <see cref="IDisposable"/>.
+    /// </summary>
+    public void Dispose()
+    {
+        for (int i = _middlewares.Count - 1; i >= 0; i--)
+        {
+            if (_middlewares[i] is IDisposable disposable)
+            {
+                try { disposable.Dispose(); }
+                catch (Exception ex) { CoreLog.Warn($"Middleware disposal failed: {ex.Message}"); }
+            }
+        }
+        _subscriptionLists.Clear();
+        _middlewares.Clear();
+        _runnerCache.Clear();
+        OnHandlerException = null;
+    }
+
+    /// <summary>
     /// Per message type subscription list with zero-allocation dispatch.
     /// Flat array, sorted by priority, version-counter for re-entrant safety.
     /// </summary>
@@ -159,7 +172,7 @@ public sealed class MessageBus : IMessageBus
     {
         private Entry[] _entries = new Entry[4];
         private int _count;
-        private int _nextId;
+        private long _nextId;
         private int _dispatchDepth;
 
         private PendingChange[] _pending = new PendingChange[4];
@@ -167,7 +180,7 @@ public sealed class MessageBus : IMessageBus
 
         public IDisposable Add(Action<T> handler, int priority)
         {
-            int id = _nextId++;
+            long id = _nextId++;
 
             if (_dispatchDepth > 0)
             {
@@ -179,9 +192,9 @@ public sealed class MessageBus : IMessageBus
             return new Token(this, id);
         }
 
-        public int AddWithId(Action<T> handler, int priority)
+        public long AddWithId(Action<T> handler, int priority)
         {
-            int id = _nextId++;
+            long id = _nextId++;
 
             if (_dispatchDepth > 0)
             {
@@ -193,7 +206,7 @@ public sealed class MessageBus : IMessageBus
             return id;
         }
 
-        public void Remove(int id)
+        public void Remove(long id)
         {
             if (_dispatchDepth > 0)
             {
@@ -213,9 +226,10 @@ public sealed class MessageBus : IMessageBus
         }
 
         [HotPath]
-        public void Dispatch(T message)
+        public void Dispatch(T message, Action<Exception>? exceptionHandler)
         {
             _dispatchDepth++;
+            List<Exception>? exceptions = null;
             try
             {
                 int count = _count;
@@ -229,7 +243,16 @@ public sealed class MessageBus : IMessageBus
                         }
                         catch (Exception ex)
                         {
-                            CoreLog.Error($"Handler threw during Publish<{typeof(T).Name}>: {ex.Message}");
+                            if (exceptionHandler is not null)
+                            {
+                                exceptionHandler(ex);
+                            }
+                            else
+                            {
+                                CoreLog.Error($"Handler threw during Publish<{typeof(T).Name}>: {ex.Message}");
+                                exceptions ??= new List<Exception>();
+                                exceptions.Add(ex);
+                            }
                         }
                     }
                 }
@@ -242,9 +265,17 @@ public sealed class MessageBus : IMessageBus
                     ApplyPendingChanges();
                 }
             }
+
+            if (exceptions is not null)
+            {
+                var inner = exceptions.Count == 1 ? exceptions[0] : new AggregateException(exceptions);
+                throw new FlosException(CoreErrors.HandlerException,
+                    $"{exceptions.Count} handler(s) threw during Publish<{typeof(T).Name}>: {exceptions[0].Message}",
+                    inner);
+            }
         }
 
-        private void InsertSorted(Action<T> handler, int priority, int id)
+        private void InsertSorted(Action<T> handler, int priority, long id)
         {
             if (_count == _entries.Length)
             {
@@ -266,7 +297,7 @@ public sealed class MessageBus : IMessageBus
             _count++;
         }
 
-        private void RemoveDirect(int id)
+        private void RemoveDirect(long id)
         {
             for (int i = 0; i < _count; i++)
             {
@@ -322,25 +353,25 @@ public sealed class MessageBus : IMessageBus
             _pendingCount = 0;
         }
 
-        private struct Entry(Action<T> handler, int priority, int id)
+        private struct Entry(Action<T> handler, int priority, long id)
         {
             public readonly Action<T> Handler = handler;
             public readonly int Priority = priority;
-            public readonly int Id = id;
+            public readonly long Id = id;
             public bool Tombstone = false;
         }
 
         private enum PendingKind : byte { Add, Remove }
 
-        private readonly struct PendingChange(PendingKind kind, int id, Action<T> handler, int priority)
+        private readonly struct PendingChange(PendingKind kind, long id, Action<T> handler, int priority)
         {
             public readonly PendingKind Kind = kind;
-            public readonly int Id = id;
+            public readonly long Id = id;
             public readonly Action<T> Handler = handler;
             public readonly int Priority = priority;
         }
 
-        private sealed class Token(SubscriptionList<T> list, int id) : IDisposable
+        private sealed class Token(SubscriptionList<T> list, long id) : IDisposable
         {
             private bool _disposed;
 
@@ -349,6 +380,52 @@ public sealed class MessageBus : IMessageBus
                 if (_disposed) return;
                 _disposed = true;
                 list.Remove(id);
+            }
+        }
+    }
+
+    /// <summary>
+    /// Stateful middleware dispatcher. Caches a single <see cref="Action{T}"/> delegate
+    /// and walks the middleware list via a mutable index. Save/restore on <see cref="Start"/>
+    /// guarantees correctness under reentrant same-type Publish.
+    /// </summary>
+    private sealed class MiddlewareRunner<T> where T : IMessage
+    {
+        private readonly MessageBus _bus;
+        private readonly Action<T> _stepDelegate;
+        private int _currentIndex;
+
+        public MiddlewareRunner(MessageBus bus)
+        {
+            _bus = bus;
+            _stepDelegate = Step;
+        }
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Start(T message)
+        {
+            int saved = _currentIndex;
+            _currentIndex = 0;
+            try
+            {
+                Step(message);
+            }
+            finally
+            {
+                _currentIndex = saved;
+            }
+        }
+
+        private void Step(T message)
+        {
+            if (_currentIndex < _bus._middlewares.Count)
+            {
+                var mw = _bus._middlewares[_currentIndex++];
+                mw.Handle(message, _stepDelegate);
+            }
+            else
+            {
+                _bus.DispatchDirect(message);
             }
         }
     }

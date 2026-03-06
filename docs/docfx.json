@@ -39,10 +39,6 @@
           "src": ".."
         },
         {
-          "files": ["src/**/Flos.Testing.csproj"],
-          "src": ".."
-        },
-        {
           "files": ["src/**/Flos.Analyzers.csproj"],
           "src": ".."
         },
@@ -119,11 +115,6 @@
         "files": ["src/Flos.Pattern.ECS/README.md"],
         "src": "..",
         "dest": "packages/ecs"
-      },
-      {
-        "files": ["src/Flos.Testing/README.md"],
-        "src": "..",
-        "dest": "packages/testing"
       },
       {
         "files": ["src/Flos.Analyzers/README.md"],

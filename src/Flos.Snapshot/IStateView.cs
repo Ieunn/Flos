@@ -3,15 +3,10 @@ using Flos.Core.State;
 namespace Flos.Snapshot;
 
 /// <summary>
-/// Read-only access to a point-in-time snapshot of state slices.
+/// Read-only point-in-time snapshot of the world state.
+/// Extends <see cref="IStateReader"/> — code that needs read-only state access
+/// should depend on <see cref="IStateReader"/> rather than on this type directly.
 /// </summary>
-public interface IStateView
+public interface IStateView : IStateReader
 {
-    /// <summary>
-    /// Retrieves a state slice of the specified type from the snapshot.
-    /// </summary>
-    /// <typeparam name="T">The state slice type to retrieve.</typeparam>
-    /// <returns>The state slice instance.</returns>
-    /// <exception cref="Flos.Core.Errors.FlosException">Thrown with <see cref="SnapshotErrors.SliceNotFound"/> when the slice is not present.</exception>
-    T Get<T>() where T : class, IStateSlice;
 }

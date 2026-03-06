@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Threading;
 using Flos.Adapter;
 using Flos.Core.Errors;
 using Flos.Core.Scheduling;
@@ -26,26 +27,30 @@ namespace Flos.Adapter.Unity
             _dispatcher = dispatcher;
         }
 
-        public void Load<T>(string key, Action<Result<T>> callback) where T : class
+        public void Load<T>(string key, Action<Result<T>> callback, CancellationToken cancellation = default) where T : class
         {
             var handle = Addressables.LoadAssetAsync<T>(key);
             handle.Completed += op =>
             {
                 var dispatcher = _dispatcher;
-                if (dispatcher == null) return;
+                if (dispatcher == null || cancellation.IsCancellationRequested) return;
 
                 if (op.Status == AsyncOperationStatus.Succeeded)
                 {
                     var result = Result<T>.Ok(op.Result);
-                    dispatcher.Enqueue(() => callback(result));
+                    dispatcher.Enqueue(() => { if (!cancellation.IsCancellationRequested) callback(result); });
                 }
                 else
                 {
                     var result = Result<T>.Fail(AdapterErrors.AssetLoadFailed);
-                    dispatcher.Enqueue(() => callback(result));
+                    dispatcher.Enqueue(() => { if (!cancellation.IsCancellationRequested) callback(result); });
                 }
             };
 
+            if (_handles.TryGetValue(key, out var existingHandle))
+            {
+                Addressables.Release(existingHandle);
+            }
             _handles[key] = handle;
         }
 

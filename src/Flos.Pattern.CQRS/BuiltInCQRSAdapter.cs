@@ -1,8 +1,6 @@
 using Flos.Core.Messaging;
-using Flos.Core.Module;
 using Flos.Core.Scheduling;
 using Flos.Core.State;
-using Flos.Snapshot;
 
 namespace Flos.Pattern.CQRS;
 
@@ -12,25 +10,26 @@ namespace Flos.Pattern.CQRS;
 /// </summary>
 internal sealed class BuiltInCQRSAdapter : ICQRSAdapter
 {
-    private readonly ISnapshotManager _snapshotManager;
+    private readonly IRollbackProvider? _rollbackProvider;
     private readonly IEventJournal _journal;
     private readonly IScheduler _scheduler;
     private readonly CQRSConfig _config;
 
     internal BuiltInCQRSAdapter(
-        ISnapshotManager snapshotManager,
+        IRollbackProvider? rollbackProvider,
         IEventJournal journal,
         IScheduler scheduler,
         CQRSConfig config)
     {
-        _snapshotManager = snapshotManager;
+        _rollbackProvider = rollbackProvider;
         _journal = journal;
         _scheduler = scheduler;
         _config = config;
     }
 
-    public IPipeline CreatePipeline(IMessageBus bus, IWorld world)
+    public (IPipeline Pipeline, IHandlerRegistry Registry) CreatePipeline(IMessageBus bus, IWorld world)
     {
-        return new Pipeline(bus, world, _snapshotManager, _journal, _scheduler, _config);
+        var pipeline = new Pipeline(bus, world, _rollbackProvider, _journal, _scheduler, _config);
+        return (pipeline, pipeline);
     }
 }

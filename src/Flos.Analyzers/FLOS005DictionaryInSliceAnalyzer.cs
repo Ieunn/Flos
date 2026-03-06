@@ -7,22 +7,30 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Flos.Analyzers;
 
 /// <summary>
-/// FLOS005: Dictionary/HashSet in IStateSlice field → use IOrderedMap.
+/// FLOS005: Dictionary/HashSet in IStateSlice field → use IOrderedMap/IOrderedSet.
 /// Scans field declarations in types implementing IStateSlice.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class FLOS005DictionaryInSliceAnalyzer : DiagnosticAnalyzer
 {
-    private static readonly DiagnosticDescriptor Rule = new(
+    private static readonly DiagnosticDescriptor DictionaryRule = new(
         DiagnosticIds.FLOS005,
-        title: "Do not use Dictionary/HashSet in IStateSlice",
-        messageFormat: "Do not use '{0}' in IStateSlice fields; use IOrderedMap for deterministic iteration",
+        title: "Do not use Dictionary in IStateSlice",
+        messageFormat: "Do not use Dictionary in IStateSlice fields; use IOrderedMap for deterministic iteration",
+        category: "Determinism",
+        defaultSeverity: DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    private static readonly DiagnosticDescriptor HashSetRule = new(
+        DiagnosticIds.FLOS005,
+        title: "Do not use HashSet in IStateSlice",
+        messageFormat: "Do not use HashSet in IStateSlice fields; use IOrderedSet for deterministic iteration",
         category: "Determinism",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
     /// <inheritdoc />
-    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(Rule);
+    public override ImmutableArray<DiagnosticDescriptor> SupportedDiagnostics => ImmutableArray.Create(DictionaryRule, HashSetRule);
 
     /// <inheritdoc />
     public override void Initialize(AnalysisContext context)
@@ -62,7 +70,7 @@ public sealed class FLOS005DictionaryInSliceAnalyzer : DiagnosticAnalyzer
             displayName == TypeNames.Dictionary ||
             originalDef.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Contains("System.Collections.Generic.Dictionary"))
         {
-            context.ReportDiagnostic(Diagnostic.Create(Rule, location, "Dictionary"));
+            context.ReportDiagnostic(Diagnostic.Create(DictionaryRule, location));
             return;
         }
 
@@ -70,7 +78,7 @@ public sealed class FLOS005DictionaryInSliceAnalyzer : DiagnosticAnalyzer
             displayName == TypeNames.HashSet ||
             originalDef.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat).Contains("System.Collections.Generic.HashSet"))
         {
-            context.ReportDiagnostic(Diagnostic.Create(Rule, location, "HashSet"));
+            context.ReportDiagnostic(Diagnostic.Create(HashSetRule, location));
         }
     }
 

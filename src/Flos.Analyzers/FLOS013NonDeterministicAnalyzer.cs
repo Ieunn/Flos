@@ -7,16 +7,17 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Flos.Analyzers;
 
 /// <summary>
-/// FLOS013: Resolve&lt;T&gt;() in [HotPath] code — resolve once in OnInitialize.
+/// Roslyn analyzer that reports <c>Guid.NewGuid()</c> in handlers and [HotPath] code.
+/// Diagnostic FLOS013. Note: <c>new Random()</c> is covered by FLOS001.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
-public sealed class FLOS013ResolveInHotPathAnalyzer : DiagnosticAnalyzer
+public sealed class FLOS013NonDeterministicAnalyzer : DiagnosticAnalyzer
 {
     private static readonly DiagnosticDescriptor Rule = new(
         DiagnosticIds.FLOS013,
-        title: "Resolve<T>() in [HotPath] code",
-        messageFormat: "Do not call Resolve<T>() in [HotPath] code; resolve once in OnInitialize and cache the reference",
-        category: "Performance",
+        title: "Do not use Guid.NewGuid() in handlers",
+        messageFormat: "Do not use '{0}' in command handlers, event appliers, or [HotPath] code; it breaks determinism",
+        category: "Determinism",
         defaultSeverity: DiagnosticSeverity.Warning,
         isEnabledByDefault: true);
 
@@ -34,17 +35,16 @@ public sealed class FLOS013ResolveInHotPathAnalyzer : DiagnosticAnalyzer
     private static void AnalyzeInvocation(SyntaxNodeAnalysisContext context)
     {
         var invocation = (InvocationExpressionSyntax)context.Node;
-
-        if (!ScopeHelper.IsInHotPathContext(invocation, context.SemanticModel))
-            return;
-
         var symbolInfo = context.SemanticModel.GetSymbolInfo(invocation, context.CancellationToken);
         var method = symbolInfo.Symbol as IMethodSymbol;
         if (method is null) return;
 
-        if (method.Name == "Resolve" && method.ContainingType?.ToDisplayString() == TypeNames.IServiceScope)
+        if (method.ContainingType?.ToDisplayString() == TypeNames.Guid && method.Name == "NewGuid")
         {
-            context.ReportDiagnostic(Diagnostic.Create(Rule, invocation.GetLocation()));
+            if (ScopeHelper.IsInScopedContext(invocation, context.SemanticModel))
+            {
+                context.ReportDiagnostic(Diagnostic.Create(Rule, invocation.GetLocation(), "Guid.NewGuid()"));
+            }
         }
     }
 }

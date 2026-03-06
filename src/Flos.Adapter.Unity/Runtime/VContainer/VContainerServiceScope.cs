@@ -8,15 +8,16 @@ using VContainer.Unity;
 namespace Flos.Adapter.Unity.VContainer
 {
     /// <summary>
-    /// <see cref="IServiceScope"/> backed by VContainer.
+    /// <see cref="IServiceRegistry"/> backed by VContainer.
     /// Accumulates registrations, then builds a child scope on <see cref="Lock"/>.
     /// </summary>
-    public sealed class VContainerServiceScope : IServiceScope
+    public sealed class VContainerServiceScope : IServiceRegistry
     {
         private readonly IObjectResolver _parentResolver;
         private IObjectResolver? _childResolver;
         private readonly List<Action<IContainerBuilder>> _registrations = new List<Action<IContainerBuilder>>();
         private readonly Dictionary<Type, object> _instances = new Dictionary<Type, object>();
+        private readonly Dictionary<Type, Func<IServiceRegistry, object>> _factories = new Dictionary<Type, Func<IServiceRegistry, object>>();
         private bool _locked;
 
         public bool IsLocked => _locked;
@@ -32,21 +33,49 @@ namespace Flos.Adapter.Unity.VContainer
             _registrations.Add(builder => builder.Register<TImpl>(Lifetime.Singleton).As<TInterface>());
         }
 
-        public void RegisterInstance<T>(T instance)
+        public void Register<T>(T instance)
         {
             ThrowIfLocked();
             _instances[typeof(T)] = instance!;
-            _registrations.Add(builder => builder.RegisterInstance<T>(instance));
+            _registrations.Add(builder => builder.Register<T>(instance));
         }
 
-        public void RegisterFactory<T>(Func<IServiceScope, T> factory)
+        public void Register<T>(Func<IServiceRegistry, T> factory)
         {
             ThrowIfLocked();
+            var key = typeof(T);
+            _factories[key] = scope => factory(scope)!;
             _registrations.Add(builder =>
             {
-                var value = factory(this);
-                builder.RegisterInstance<T>(value);
+                builder.Register<object>(
+                    c => _factories[key](this),
+                    Lifetime.Singleton
+                ).As<T>();
             });
+        }
+
+        public bool TryRegister<T>(T instance)
+        {
+            ThrowIfLocked();
+            if (HasRegistration(typeof(T))) return false;
+            Register(instance);
+            return true;
+        }
+
+        public bool TryRegister<TInterface, TImpl>() where TImpl : class, TInterface, new()
+        {
+            ThrowIfLocked();
+            if (HasRegistration(typeof(TInterface))) return false;
+            Register<TInterface, TImpl>();
+            return true;
+        }
+
+        public bool TryRegister<T>(Func<IServiceRegistry, T> factory)
+        {
+            ThrowIfLocked();
+            if (HasRegistration(typeof(T))) return false;
+            Register(factory);
+            return true;
         }
 
         public void Lock()
@@ -74,18 +103,21 @@ namespace Flos.Adapter.Unity.VContainer
 
         public bool IsRegistered<T>()
         {
-            if (_instances.ContainsKey(typeof(T)))
-                return true;
+            return HasRegistration(typeof(T));
+        }
 
-            try
+        public bool TryResolve<T>(out T? value)
+        {
+            if (_instances.TryGetValue(typeof(T), out var instance))
             {
-                Resolve<T>();
+                value = (T)instance;
                 return true;
             }
-            catch
-            {
-                return false;
-            }
+
+            if (_childResolver != null)
+                return _childResolver.TryResolve<T>(out value);
+
+            return _parentResolver.TryResolve<T>(out value);
         }
 
         public void Dispose()
@@ -93,6 +125,22 @@ namespace Flos.Adapter.Unity.VContainer
             if (_childResolver is IDisposable disposable)
                 disposable.Dispose();
             _childResolver = null;
+        }
+
+        private bool HasRegistration(Type key)
+        {
+            if (_instances.ContainsKey(key))
+                return true;
+
+            if (_factories.ContainsKey(key))
+                return true;
+
+            if (_childResolver != null)
+            {
+                return _childResolver.TryResolve(key, out _);
+            }
+
+            return _parentResolver.TryResolve(key, out _);
         }
 
         private void ThrowIfLocked()

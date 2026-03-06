@@ -18,7 +18,8 @@ public static class CoreLogBridge
         {
             var traceLevel = level switch
             {
-                LogLevel.Log => TraceLevel.Info,
+                LogLevel.Debug => TraceLevel.Debug,
+                LogLevel.Info => TraceLevel.Info,
                 LogLevel.Warn => TraceLevel.Warning,
                 LogLevel.Error => TraceLevel.Error,
                 _ => TraceLevel.Debug,

@@ -16,15 +16,17 @@ namespace Flos.Adapter.Unity
 
         private readonly UnitySaveBridge _saveBridge = new UnitySaveBridge();
         private readonly UnityProfilerBridge _profilerBridge = new UnityProfilerBridge();
+        private readonly UnityAssetBridge _assetBridge = new UnityAssetBridge();
 
-        public override void OnLoad(IServiceScope scope)
+        public override void OnLoad(ILoadScope scope)
         {
             base.OnLoad(scope);
 
             CoreLog.Handler = UnityLogBridge.Handler;
 
-            scope.RegisterInstance<IProfiler>(_profilerBridge);
-            scope.RegisterInstance<ISaveStorage>(_saveBridge);
+            scope.Register<IProfiler>(_profilerBridge);
+            scope.Register<ISaveStorage>(_saveBridge);
+            scope.Register<IAssetProvider>(_assetBridge);
         }
 
         public override void OnInitialize()
@@ -32,6 +34,7 @@ namespace Flos.Adapter.Unity
             var dispatcher = Scope.Resolve<IDispatcher>();
 
             _saveBridge.Initialize(dispatcher);
+            _assetBridge.Initialize(dispatcher);
         }
 
         public override void OnShutdown()

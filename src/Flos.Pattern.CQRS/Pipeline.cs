@@ -1,25 +1,27 @@
+using System.Runtime.CompilerServices;
 using Flos.Core.Annotations;
 using Flos.Core.Errors;
 using Flos.Core.Logging;
 using Flos.Core.Messaging;
 using Flos.Core.Scheduling;
 using Flos.Core.State;
-using Flos.Snapshot;
 
 namespace Flos.Pattern.CQRS;
 
-internal sealed class Pipeline : IPipeline, IHandlerRegistry
+internal sealed class Pipeline : IPipeline, IHandlerRegistry, IApplierDispatch
 {
     private readonly IMessageBus _bus;
     private readonly IWorld _world;
-    private readonly ISnapshotManager _snapshotManager;
+    private readonly IRollbackProvider? _rollbackProvider;
     private readonly IEventJournal _journal;
     private readonly IScheduler _scheduler;
     private readonly CQRSConfig _config;
+    private readonly EventBuffer _eventBuffer = new();
+    private readonly ReadOnlyWorldView _handlerView = new();
+    private bool _isSending;
 
-    private readonly Dictionary<Type, Func<ICommand, IStateView, Result<IReadOnlyList<IEvent>>>> _handlers = [];
-    private readonly Dictionary<Type, List<Action<IEvent, IWorld>>> _appliers = [];
-    private readonly Dictionary<Type, Action<IMessageBus, IEvent>> _publishers = [];
+    private readonly Dictionary<Type, ICommandDispatcher> _dispatchers = new();
+    private readonly Dictionary<Type, object> _appliers = new();
 
     /// <summary>
     /// Number of applier faults absorbed in <see cref="ApplierFaultMode.Tolerant"/> mode.
@@ -27,17 +29,30 @@ internal sealed class Pipeline : IPipeline, IHandlerRegistry
     /// </summary>
     internal int TolerantFaultCount { get; private set; }
 
+    /// <summary>
+    /// Number of subscriber exceptions swallowed during the last <see cref="Send"/> call's
+    /// event publication phase. Reset to 0 at the start of each Send.
+    /// Non-zero indicates that some subscribers did not receive events despite successful state mutation.
+    /// </summary>
+    public int PublishFaultCount { get; private set; }
+
     internal Pipeline(
         IMessageBus bus,
         IWorld world,
-        ISnapshotManager snapshotManager,
+        IRollbackProvider? rollbackProvider,
         IEventJournal journal,
         IScheduler scheduler,
         CQRSConfig config)
     {
+        if (config.EnableRollback && rollbackProvider is null)
+        {
+            throw new FlosException(CQRSErrors.InvalidConfiguration,
+                "EnableRollback is true but no IRollbackProvider was registered.");
+        }
+
         _bus = bus;
         _world = world;
-        _snapshotManager = snapshotManager;
+        _rollbackProvider = rollbackProvider;
         _journal = journal;
         _scheduler = scheduler;
         _config = config;
@@ -46,11 +61,15 @@ internal sealed class Pipeline : IPipeline, IHandlerRegistry
     public void Register<TCommand>(ICommandHandler<TCommand> handler) where TCommand : ICommand
     {
         var key = typeof(TCommand);
-        if (_handlers.ContainsKey(key))
+
+        if (_dispatchers.TryGetValue(key, out var existing))
         {
             CoreLog.Warn($"Handler for command '{key.Name}' is being overwritten.");
+            ((CommandDispatcher<TCommand>)existing).Handler = handler;
+            return;
         }
-        _handlers[key] = (command, stateView) => handler.Handle((TCommand)command, stateView);
+
+        _dispatchers[key] = new CommandDispatcher<TCommand> { Handler = handler };
     }
 
     public void Register<TEvent, TState>(IEventApplier<TEvent, TState> applier)
@@ -58,117 +77,252 @@ internal sealed class Pipeline : IPipeline, IHandlerRegistry
         where TState : class, IStateSlice
     {
         var eventType = typeof(TEvent);
-        if (!_appliers.TryGetValue(eventType, out var list))
+        if (!_appliers.TryGetValue(eventType, out var listObj))
         {
-            list = [];
+            var list = new ApplierList<TEvent>();
             _appliers[eventType] = list;
+            listObj = list;
         }
 
-        list.Add((evt, world) => applier.Apply(world.Get<TState>(), (TEvent)evt));
+        ((ApplierList<TEvent>)listObj).Add(applier);
+    }
 
-        _publishers.TryAdd(eventType, static (bus, evt) => bus.Publish((TEvent)evt));
+    /// <inheritdoc />
+    [HotPath]
+    public Result<EventBuffer> Send(ICommand command)
+    {
+        ThrowIfReentrant();
+
+        if (!_dispatchers.TryGetValue(command.GetType(), out var dispatcher))
+            return Result<EventBuffer>.Fail(CQRSErrors.UnknownCommand);
+
+        _isSending = true;
+        PublishFaultCount = 0;
+        IStateReader? rollbackSnapshot = null;
+        try
+        {
+            rollbackSnapshot = CaptureRollbackIfEnabled();
+            _handlerView.Bind(_world, _config.FaultMode);
+            _eventBuffer.Reset();
+            var error = dispatcher.Execute(command, _handlerView, _eventBuffer);
+
+            return FinishSend(command, ref rollbackSnapshot, error);
+        }
+        finally
+        {
+            EndSend(rollbackSnapshot);
+        }
+    }
+
+    /// <inheritdoc />
+    [HotPath]
+    public Result<EventBuffer> Send<TCommand>(TCommand command) where TCommand : ICommand
+    {
+        ThrowIfReentrant();
+
+        if (!_dispatchers.TryGetValue(typeof(TCommand), out var dispatcherObj))
+            return Result<EventBuffer>.Fail(CQRSErrors.UnknownCommand);
+
+        _isSending = true;
+        PublishFaultCount = 0;
+        IStateReader? rollbackSnapshot = null;
+        try
+        {
+            var dispatcher = (CommandDispatcher<TCommand>)dispatcherObj;
+
+            rollbackSnapshot = CaptureRollbackIfEnabled();
+            _handlerView.Bind(_world, _config.FaultMode);
+            _eventBuffer.Reset();
+            var error = dispatcher.ExecuteTyped(command, _handlerView, _eventBuffer);
+
+            return FinishSend(command, ref rollbackSnapshot, error);
+        }
+        finally
+        {
+            EndSend(rollbackSnapshot);
+        }
+    }
+
+    private void ThrowIfReentrant()
+    {
+        if (_isSending)
+            throw new FlosException(CQRSErrors.ReentrantSend,
+                "Reentrant Pipeline.Send detected. Cannot call Send from within a command handler or event applier.");
+    }
+
+    private IStateReader? CaptureRollbackIfEnabled()
+        => _config.EnableRollback ? _rollbackProvider?.Capture(_world) : null;
+
+    [HotPath]
+    private Result<EventBuffer> FinishSend(ICommand command, ref IStateReader? rollbackSnapshot, ErrorCode handleError)
+    {
+        if (handleError != default)
+        {
+            _bus.Publish(new CommandRejectedMessage(command, handleError));
+            return Result<EventBuffer>.Fail(handleError);
+        }
+        return CompleteCommand(_eventBuffer, ref rollbackSnapshot, command);
+    }
+
+    private void EndSend(IStateReader? rollbackSnapshot)
+    {
+        _handlerView.Reset();
+        _eventBuffer.Reset();
+        ReleaseSnapshot(rollbackSnapshot);
+        _isSending = false;
     }
 
     [HotPath]
-    public Result<IReadOnlyList<IEvent>> Send(ICommand command)
+    private Result<EventBuffer> CompleteCommand(
+        EventBuffer events, ref IStateReader? rollbackSnapshot, ICommand command)
     {
-        var commandType = command.GetType();
-
-        if (!_handlers.TryGetValue(commandType, out var handler))
-        {
-            return Result<IReadOnlyList<IEvent>>.Fail(CQRSErrors.UnknownCommand);
-        }
-
-        var snapshot = _snapshotManager.Capture(_world);
-
-        var result = handler(command, snapshot);
-
-        if (!result.IsSuccess)
-        {
-            _bus.Publish(new CommandRejectedMessage(command, result.Error));
-            return Result<IReadOnlyList<IEvent>>.Fail(result.Error);
-        }
-
-        var events = result.Value;
-
         try
         {
             ApplyEvents(events);
         }
         catch (Exception ex)
         {
-            return HandleApplierFault(snapshot, command, ex);
+            return HandleApplierFault(ref rollbackSnapshot, command, ex);
+        }
+
+        var tick = _scheduler.CurrentTick;
+        for (int i = 0; i < events.Count; i++)
+        {
+            try
+            {
+                events.GetSlot(i).Publish(_bus);
+            }
+            catch (Exception ex)
+            {
+                PublishFaultCount++;
+                CoreLog.Error(
+                    $"Subscriber threw during event '{events.GetSlot(i).EventType.Name}': "
+                    + $"{ex.Message}. State was mutated but this subscriber did not process the event.");
+            }
         }
 
         if (_config.EnableJournal)
         {
-            var tick = _scheduler.CurrentTick;
             for (int i = 0; i < events.Count; i++)
             {
-                _journal.Append(tick, events[i]);
+                _journal.Append(tick, events.GetSlot(i));
             }
         }
 
-        for (int i = 0; i < events.Count; i++)
-        {
-            PublishEvent(events[i]);
-        }
-
-        return Result<IReadOnlyList<IEvent>>.Ok(events);
+        return Result<EventBuffer>.Ok(events);
     }
 
     [HotPath]
-    private void ApplyEvents(IReadOnlyList<IEvent> events)
+    private void ApplyEvents(EventBuffer events)
     {
         for (int i = 0; i < events.Count; i++)
         {
-            var evt = events[i];
-            var eventType = evt.GetType();
-
-            if (!_appliers.TryGetValue(eventType, out var applierList))
-                continue;
-
-            for (int j = 0; j < applierList.Count; j++)
+            ref readonly var slot = ref events.GetSlot(i);
+            if (_config.FaultMode == ApplierFaultMode.Tolerant)
             {
-                applierList[j](evt, _world);
+                try
+                {
+                    slot.Apply(this, _world);
+                }
+                catch (Exception ex)
+                {
+                    CoreLog.Error($"Applier threw for event '{slot.EventType.Name}': {ex.Message}. Skipping (Tolerant mode).");
+                    TolerantFaultCount++;
+                }
+            }
+            else
+            {
+                slot.Apply(this, _world);
             }
         }
     }
 
-    private Result<IReadOnlyList<IEvent>> HandleApplierFault(
-        IStateView preApplySnapshot, ICommand command, Exception ex)
+    [HotPath]
+    void IApplierDispatch.Apply<T>(T evt, IWorld world)
     {
+        if (!_appliers.TryGetValue(typeof(T), out var listObj))
+            return;
+
+        ((ApplierList<T>)listObj).ApplyAll(evt, world);
+    }
+
+    private Result<EventBuffer> HandleApplierFault(
+        ref IStateReader? preApplySnapshot, ICommand command, Exception ex)
+    {
+        CoreLog.Error($"Applier threw for command '{command.GetType().Name}': {ex}");
+
         switch (_config.FaultMode)
         {
             case ApplierFaultMode.Strict:
-                _snapshotManager.RestoreTo(_world, preApplySnapshot);
+                RestoreAndRelease(ref preApplySnapshot);
                 _bus.Publish(new CommandRejectedMessage(command, CQRSErrors.ApplierFailed));
-                return Result<IReadOnlyList<IEvent>>.Fail(CQRSErrors.ApplierFailed);
-
-            case ApplierFaultMode.Tolerant:
-                TolerantFaultCount++;
-                _snapshotManager.RestoreTo(_world, preApplySnapshot);
-                _bus.Publish(new CommandRejectedMessage(command, CQRSErrors.ApplierFailed));
-                return Result<IReadOnlyList<IEvent>>.Fail(CQRSErrors.ApplierFailed);
+                return Result<EventBuffer>.Fail(CQRSErrors.ApplierFailed);
 
             case ApplierFaultMode.Fatal:
             default:
+                RestoreAndRelease(ref preApplySnapshot);
                 throw new FlosException(CQRSErrors.ApplierFailed,
-                    $"Applier threw in Fatal mode: {ex.Message}");
+                    $"Applier threw in Fatal mode: {ex.Message}", ex);
         }
     }
 
-    [HotPath]
-    private void PublishEvent(IEvent evt)
+    private void RestoreAndRelease(ref IStateReader? snapshot)
     {
-        var eventType = evt.GetType();
-        if (_publishers.TryGetValue(eventType, out var publisher))
+        if (snapshot is null) return;
+        _rollbackProvider!.RestoreTo(_world, snapshot);
+        _rollbackProvider.Release(snapshot);
+        snapshot = null;
+    }
+
+    private void ReleaseSnapshot(IStateReader? snapshot)
+    {
+        if (snapshot is not null)
+            _rollbackProvider?.Release(snapshot);
+    }
+
+    private interface IApplierEntry<TEvent> where TEvent : IEvent
+    {
+        void Apply(TEvent evt, IWorld world);
+    }
+
+    private sealed class ApplierEntry<TEvent, TState> : IApplierEntry<TEvent>
+        where TEvent : IEvent
+        where TState : class, IStateSlice
+    {
+        private readonly IEventApplier<TEvent, TState> _applier;
+
+        public ApplierEntry(IEventApplier<TEvent, TState> applier)
+            => _applier = applier;
+
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        public void Apply(TEvent evt, IWorld world)
+            => _applier.Apply(world.Get<TState>(), evt);
+    }
+
+    /// <summary>
+    /// Typed applier list that dispatches events to appliers without boxing.
+    /// One per event type. Each entry captures TState at registration time.
+    /// </summary>
+    private sealed class ApplierList<TEvent> where TEvent : IEvent
+    {
+        private IApplierEntry<TEvent>[] _entries = new IApplierEntry<TEvent>[2];
+        private int _count;
+
+        internal void Add<TState>(IEventApplier<TEvent, TState> applier)
+            where TState : class, IStateSlice
         {
-            publisher(_bus, evt);
+            if (_count == _entries.Length)
+                Array.Resize(ref _entries, _entries.Length * 2);
+            _entries[_count++] = new ApplierEntry<TEvent, TState>(applier);
         }
-        else
+
+        [HotPath]
+        internal void ApplyAll(TEvent evt, IWorld world)
         {
-            _bus.Publish(evt);
+            for (int i = 0; i < _count; i++)
+            {
+                _entries[i].Apply(evt, world);
+            }
         }
     }
 }

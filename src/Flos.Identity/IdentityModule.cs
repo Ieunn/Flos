@@ -1,42 +1,33 @@
 using Flos.Core.Module;
-using Flos.Core.Sessions;
 
 namespace Flos.Identity;
 
 /// <summary>
 /// Module that registers an <see cref="IIdGenerator"/> backed by <see cref="SequentialIdGenerator"/>.
+/// The generator starts from the specified start value (default 1), producing a deterministic
+/// monotonically increasing sequence with no dependency on randomness.
 /// </summary>
 public sealed class IdentityModule : ModuleBase
 {
+    private readonly long _startValue;
+
+    /// <summary>Creates an IdentityModule that starts generating IDs from 1.</summary>
+    public IdentityModule() => _startValue = 1;
+
+    /// <summary>Creates an IdentityModule with a custom starting value for the ID sequence.</summary>
+    /// <param name="startValue">The starting value for the sequential ID generator. Values &lt;= 0 default to 1.</param>
+    public IdentityModule(long startValue) => _startValue = startValue;
+
     /// <inheritdoc />
     public override string Id => "Identity";
 
     /// <inheritdoc />
-    public override IReadOnlyList<string> Dependencies => [];
+    public override IReadOnlyList<string> Dependencies => Array.Empty<string>();
 
     /// <inheritdoc />
-    public override void OnLoad(IServiceScope scope)
+    public override void OnLoad(ILoadScope scope)
     {
         base.OnLoad(scope);
-        var config = scope.Resolve<SessionConfig>();
-        long startValue = SplitMix64(unchecked((ulong)config.RandomSeed));
-        var generator = new SequentialIdGenerator(startValue);
-        scope.RegisterInstance<IIdGenerator>(generator);
-    }
-
-    /// <summary>
-    /// SplitMix64-style hash to derive a well-distributed long from a seed.
-    /// </summary>
-    private static long SplitMix64(ulong seed)
-    {
-        unchecked
-        {
-            seed += 0x9E3779B97F4A7C15UL;
-            seed = (seed ^ (seed >> 30)) * 0xBF58476D1CE4E5B9UL;
-            seed = (seed ^ (seed >> 27)) * 0x94D049BB133111EBUL;
-            seed ^= seed >> 31;
-        }
-        long result = (long)(seed & 0x7FFFFFFFFFFFFFFFUL);
-        return result <= 0 ? 1 : result;
+        scope.Register<IIdGenerator>(new SequentialIdGenerator(_startValue));
     }
 }

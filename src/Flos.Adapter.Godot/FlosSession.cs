@@ -9,12 +9,12 @@ namespace Flos.Adapter.Godot;
 /// Add as a child node to bootstrap Flos in Godot.
 /// Subclass and override <see cref="GetModules"/> to add game modules.
 /// </summary>
-public partial class FlosSession : Node
+public abstract partial class FlosSession : Node
 {
     [Export] private TickMode _tickMode = TickMode.FixedTick;
     [Export] private float _fixedTimeStep = 1f / 60f;
-    [Export] private int _randomSeed = 42;
     [Export] private bool _autoInitialize = true;
+    [Export] private bool _pauseOnFocusLoss;
 
     private ISession? _session;
     private bool _started;
@@ -23,9 +23,9 @@ public partial class FlosSession : Node
     public ISession? Session => _session;
 
     /// <summary>
-    /// Optional DI adapter. Set before <see cref="Initialize"/> to use a custom DI container.
+    /// Optional scope factory. Set before <see cref="Initialize"/> to use a custom DI container.
     /// </summary>
-    public IDIAdapter? DIAdapter { get; set; }
+    public IScopeFactory? ScopeFactory { get; set; }
 
     public override void _Ready()
     {
@@ -64,10 +64,13 @@ public partial class FlosSession : Node
         else if (what == NotificationApplicationResumed && _session.State == SessionState.Paused)
             _session.Resume();
 
-        if (what == NotificationWMWindowFocusOut && _session.State == SessionState.Running)
-            _session.Pause();
-        else if (what == NotificationWMWindowFocusIn && _session.State == SessionState.Paused)
-            _session.Resume();
+        if (_pauseOnFocusLoss)
+        {
+            if (what == NotificationWMWindowFocusOut && _session.State == SessionState.Running)
+                _session.Pause();
+            else if (what == NotificationWMWindowFocusIn && _session.State == SessionState.Paused)
+                _session.Resume();
+        }
     }
 
     public override void _ExitTree()
@@ -94,8 +97,7 @@ public partial class FlosSession : Node
             Modules = GetModules(),
             TickMode = _tickMode,
             FixedTimeStep = _fixedTimeStep,
-            RandomSeed = _randomSeed,
-            DIAdapter = DIAdapter,
+            ScopeFactory = ScopeFactory,
         });
     }
 
@@ -110,10 +112,7 @@ public partial class FlosSession : Node
     }
 
     /// <summary>
-    /// Override to provide game modules. Default returns only the Godot adapter module.
+    /// Override to provide game modules. Must include <see cref="GodotAdapterModule"/> and any game-specific modules.
     /// </summary>
-    protected virtual IReadOnlyList<IModule> GetModules()
-    {
-        return [new GodotAdapterModule()];
-    }
+    protected abstract IReadOnlyList<IModule> GetModules();
 }

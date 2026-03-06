@@ -14,25 +14,26 @@ public abstract class ModuleBase : IModule
     /// <summary>
     /// Module dependencies. Empty by default.
     /// </summary>
-    public virtual IReadOnlyList<string> Dependencies => [];
+    public virtual IReadOnlyList<string> Dependencies => Array.Empty<string>();
 
     /// <summary>
     /// Required patterns. Empty by default.
     /// </summary>
-    public virtual IReadOnlyList<PatternId> RequiredPatterns => [];
+    public virtual IReadOnlyList<PatternId> RequiredPatterns => Array.Empty<PatternId>();
 
     /// <summary>
-    /// The shared service scope, available after <see cref="OnLoad"/>.
+    /// The shared service registry, available after <see cref="OnLoad"/>.
     /// </summary>
-    protected IServiceScope Scope { get; private set; } = null!;
+    protected IServiceRegistry Scope { get; private set; } = null!;
 
     /// <summary>
-    /// Stores the service scope. Call <c>base.OnLoad(scope)</c> when overriding.
+    /// Stores the underlying service registry for use in <see cref="OnInitialize"/>.
+    /// Call <c>base.OnLoad(scope)</c> when overriding.
     /// </summary>
-    /// <param name="scope">The shared service scope for the session.</param>
-    public virtual void OnLoad(IServiceScope scope)
+    /// <param name="scope">The load scope exposing registration and pre-registered infrastructure.</param>
+    public virtual void OnLoad(ILoadScope scope)
     {
-        Scope = scope;
+        Scope = scope.Registry;
     }
 
     /// <summary>

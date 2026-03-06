@@ -1,16 +1,11 @@
 using System.Buffers;
 using System.Collections;
 using System.Runtime.CompilerServices;
-using Flos.Core.Logging;
 
 namespace Flos.Collections;
 
-/// <summary>
-/// Sorted array-backed map with deterministic iteration order.
-/// O(log n) lookup, O(n) insert/remove. Uses ArrayPool for backing arrays.
-/// Zero-allocation on read paths (TryGetValue, indexer, ContainsKey, struct enumerator).
-/// </summary>
-public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>, IDisposable
+public sealed class SortedArrayMap<TKey, TValue>
+    : IOrderedMap<TKey, TValue>, IReadOnlyDictionary<TKey, TValue>, IDisposable
     where TKey : IComparable<TKey>
 {
     private const int DefaultCapacity = 4;
@@ -20,16 +15,37 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
     private int _count;
     private bool _disposed;
 
-    public SortedArrayMap()
+    private int _keyCapacity;
+    private int _valueCapacity;
+
+    public SortedArrayMap() : this(DefaultCapacity) { }
+
+    public SortedArrayMap(int capacity)
     {
-        _keys = ArrayPool<TKey>.Shared.Rent(DefaultCapacity);
-        _values = ArrayPool<TValue>.Shared.Rent(DefaultCapacity);
+        ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+        capacity = Math.Max(capacity, DefaultCapacity);
+
+        _keys = ArrayPool<TKey>.Shared.Rent(capacity);
+        _values = ArrayPool<TValue>.Shared.Rent(capacity);
+
+        _keyCapacity = _keys.Length;
+        _valueCapacity = _values.Length;
     }
 
     public int Count
     {
         [MethodImpl(MethodImplOptions.AggressiveInlining)]
         get => _count;
+    }
+
+    /// <summary>
+    /// The effective capacity before any growth is needed.
+    /// Equal to the smaller of the two independent capacities.
+    /// </summary>
+    public int Capacity
+    {
+        [MethodImpl(MethodImplOptions.AggressiveInlining)]
+        get => Math.Min(_keyCapacity, _valueCapacity);
     }
 
     [MethodImpl(MethodImplOptions.AggressiveInlining)]
@@ -45,8 +61,7 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
         {
             ThrowIfDisposed();
             int index = FindIndex(key);
-            if (index < 0)
-                throw new KeyNotFoundException($"Key '{key}' not found.");
+            if (index < 0) throw new KeyNotFoundException($"Key '{key}' not found.");
             return _values[index];
         }
         set
@@ -54,13 +69,9 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
             ThrowIfDisposed();
             int index = FindIndex(key);
             if (index >= 0)
-            {
                 _values[index] = value;
-            }
             else
-            {
                 InsertAt(~index, key, value);
-            }
         }
     }
 
@@ -69,11 +80,7 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
         ThrowIfDisposed();
         int index = FindIndex(key);
         if (index >= 0)
-        {
-            CoreLog.Warn($"SortedArrayMap: key '{key}' already exists. Overwriting.");
-            _values[index] = value;
-            return;
-        }
+            throw new ArgumentException($"An element with the key '{key}' already exists.");
         InsertAt(~index, key, value);
     }
 
@@ -81,8 +88,7 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
     {
         ThrowIfDisposed();
         int index = FindIndex(key);
-        if (index < 0)
-            return false;
+        if (index < 0) return false;
 
         _count--;
         if (index < _count)
@@ -101,11 +107,7 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
     {
         ThrowIfDisposed();
         int index = FindIndex(key);
-        if (index >= 0)
-        {
-            value = _values[index];
-            return true;
-        }
+        if (index >= 0) { value = _values[index]; return true; }
         value = default!;
         return false;
     }
@@ -134,8 +136,10 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
 
     private void InsertAt(int index, TKey key, TValue value)
     {
-        if (_count == _keys.Length)
-            Grow();
+        if (_count == _keyCapacity)
+            GrowKeys();
+        if (_count == _valueCapacity)
+            GrowValues();
 
         if (index < _count)
         {
@@ -148,21 +152,109 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
         _count++;
     }
 
-    private void Grow()
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void GrowKeys()
     {
-        int newCapacity = _keys.Length * 2;
+        int newCapacity = ComputeNewCapacity(_keyCapacity);
+
         var newKeys = ArrayPool<TKey>.Shared.Rent(newCapacity);
-        var newValues = ArrayPool<TValue>.Shared.Rent(newCapacity);
-
         Array.Copy(_keys, newKeys, _count);
-        Array.Copy(_values, newValues, _count);
-
-        ArrayPool<TKey>.Shared.Return(_keys, clearArray: true);
-        ArrayPool<TValue>.Shared.Return(_values, clearArray: true);
+        ArrayPool<TKey>.Shared.Return(_keys,
+            clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<TKey>());
 
         _keys = newKeys;
-        _values = newValues;
+        _keyCapacity = newKeys.Length;
     }
+
+    [MethodImpl(MethodImplOptions.NoInlining)]
+    private void GrowValues()
+    {
+        int newCapacity = ComputeNewCapacity(_valueCapacity);
+
+        var newValues = ArrayPool<TValue>.Shared.Rent(newCapacity);
+        Array.Copy(_values, newValues, _count);
+        ArrayPool<TValue>.Shared.Return(_values,
+            clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
+
+        _values = newValues;
+        _valueCapacity = newValues.Length;
+    }
+
+    /// <summary>
+    /// Shared growth policy: double, clamped to Array.MaxLength.
+    /// </summary>
+    [MethodImpl(MethodImplOptions.AggressiveInlining)]
+    private static int ComputeNewCapacity(int currentCapacity)
+    {
+        int newCapacity = (int)Math.Min((long)currentCapacity * 2, Array.MaxLength);
+        if (newCapacity <= currentCapacity)
+            throw new InvalidOperationException("SortedArrayMap has reached maximum capacity.");
+        return newCapacity;
+    }
+
+    /// <summary>
+    /// Ensures both backing arrays can hold at least <paramref name="capacity"/> elements
+    /// without further allocation.
+    /// </summary>
+    public void EnsureCapacity(int capacity)
+    {
+        ThrowIfDisposed();
+        ArgumentOutOfRangeException.ThrowIfNegative(capacity);
+
+        if (capacity > _keyCapacity)
+        {
+            var newKeys = ArrayPool<TKey>.Shared.Rent(capacity);
+            Array.Copy(_keys, newKeys, _count);
+            ArrayPool<TKey>.Shared.Return(_keys,
+                clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<TKey>());
+            _keys = newKeys;
+            _keyCapacity = newKeys.Length;
+        }
+
+        if (capacity > _valueCapacity)
+        {
+            var newValues = ArrayPool<TValue>.Shared.Rent(capacity);
+            Array.Copy(_values, newValues, _count);
+            ArrayPool<TValue>.Shared.Return(_values,
+                clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
+            _values = newValues;
+            _valueCapacity = newValues.Length;
+        }
+    }
+
+
+    /// <summary>
+    /// Returns excess pooled memory. Both arrays are shrunk independently
+    /// to the smallest pool bucket that fits <see cref="Count"/>.
+    /// </summary>
+    public void TrimExcess()
+    {
+        ThrowIfDisposed();
+        int target = Math.Max(_count, DefaultCapacity);
+
+        if (_keyCapacity > target * 2)
+        {
+            var newKeys = ArrayPool<TKey>.Shared.Rent(target);
+            Array.Copy(_keys, newKeys, _count);
+            ArrayPool<TKey>.Shared.Return(_keys,
+                clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<TKey>());
+            _keys = newKeys;
+            _keyCapacity = newKeys.Length;
+        }
+
+        if (_valueCapacity > target * 2)
+        {
+            var newValues = ArrayPool<TValue>.Shared.Rent(target);
+            Array.Copy(_values, newValues, _count);
+            ArrayPool<TValue>.Shared.Return(_values,
+                clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
+            _values = newValues;
+            _valueCapacity = newValues.Length;
+        }
+    }
+
+    public ReadOnlySpan<TKey> KeysSpan => _keys.AsSpan(0, _count);
+    public ReadOnlySpan<TValue> ValuesSpan => _values.AsSpan(0, _count);
 
     public Enumerator GetEnumerator()
     {
@@ -182,32 +274,14 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
         return new EnumeratorObject(this);
     }
 
-    /// <summary>Gets the keys in sorted order as a span (zero-allocation).</summary>
-    public ReadOnlySpan<TKey> KeysSpan => _keys.AsSpan(0, _count);
-
-    /// <summary>Gets the values in key-sorted order as a span (zero-allocation).</summary>
-    public ReadOnlySpan<TValue> ValuesSpan => _values.AsSpan(0, _count);
-
-    /// <summary>Gets the keys in sorted order.</summary>
     public IEnumerable<TKey> Keys
     {
-        get
-        {
-            ThrowIfDisposed();
-            for (int i = 0; i < _count; i++)
-                yield return _keys[i];
-        }
+        get { ThrowIfDisposed(); return new KeyCollection(this); }
     }
 
-    /// <summary>Gets the values in key-sorted order.</summary>
     public IEnumerable<TValue> Values
     {
-        get
-        {
-            ThrowIfDisposed();
-            for (int i = 0; i < _count; i++)
-                yield return _values[i];
-        }
+        get { ThrowIfDisposed(); return new ValueCollection(this); }
     }
 
     IEnumerable<TKey> IReadOnlyDictionary<TKey, TValue>.Keys => Keys;
@@ -218,11 +292,49 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
         if (_disposed) return;
         _disposed = true;
 
-        ArrayPool<TKey>.Shared.Return(_keys, clearArray: true);
-        ArrayPool<TValue>.Shared.Return(_values, clearArray: true);
+        ArrayPool<TKey>.Shared.Return(_keys,
+            clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<TKey>());
+        ArrayPool<TValue>.Shared.Return(_values,
+            clearArray: RuntimeHelpers.IsReferenceOrContainsReferences<TValue>());
         _keys = [];
         _values = [];
+        _keyCapacity = 0;
+        _valueCapacity = 0;
         _count = 0;
+    }
+
+    private sealed class KeyCollection(SortedArrayMap<TKey, TValue> map) : IEnumerable<TKey>
+    {
+        public IEnumerator<TKey> GetEnumerator() => new KeyEnumerator(map);
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    private sealed class ValueCollection(SortedArrayMap<TKey, TValue> map) : IEnumerable<TValue>
+    {
+        public IEnumerator<TValue> GetEnumerator() => new ValueEnumerator(map);
+        IEnumerator IEnumerable.GetEnumerator() => GetEnumerator();
+    }
+
+    private sealed class KeyEnumerator(SortedArrayMap<TKey, TValue> map) : IEnumerator<TKey>
+    {
+        private int _index = -1;
+        private readonly int _count = map._count;
+        public TKey Current => map._keys[_index];
+        object IEnumerator.Current => Current!;
+        public bool MoveNext() => ++_index < _count;
+        public void Reset() => _index = -1;
+        public void Dispose() { }
+    }
+
+    private sealed class ValueEnumerator(SortedArrayMap<TKey, TValue> map) : IEnumerator<TValue>
+    {
+        private int _index = -1;
+        private readonly int _count = map._count;
+        public TValue Current => map._values[_index];
+        object? IEnumerator.Current => Current;
+        public bool MoveNext() => ++_index < _count;
+        public void Reset() => _index = -1;
+        public void Dispose() { }
     }
 
     public struct Enumerator
@@ -256,7 +368,6 @@ public sealed class SortedArrayMap<TKey, TValue> : IOrderedMap<TKey, TValue>, IR
     {
         private int _index = -1;
         private readonly int _count = map._count;
-
         public KeyValuePair<TKey, TValue> Current => new(map._keys[_index], map._values[_index]);
         object IEnumerator.Current => Current;
         public bool MoveNext() => ++_index < _count;

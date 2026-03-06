@@ -17,7 +17,14 @@ internal static class TypeNames
 
     public const string File = "System.IO.File";
     public const string Directory = "System.IO.Directory";
+    public const string FileStream = "System.IO.FileStream";
+    public const string StreamReader = "System.IO.StreamReader";
+    public const string StreamWriter = "System.IO.StreamWriter";
+    public const string FileInfo = "System.IO.FileInfo";
+    public const string DirectoryInfo = "System.IO.DirectoryInfo";
     public const string Socket = "System.Net.Sockets.Socket";
+    public const string TcpClient = "System.Net.Sockets.TcpClient";
+    public const string UdpClient = "System.Net.Sockets.UdpClient";
     public const string HttpClient = "System.Net.Http.HttpClient";
     public const string WebRequest = "System.Net.WebRequest";
 
@@ -37,7 +44,7 @@ internal static class TypeNames
     public const string IMessageBus = "Flos.Core.Messaging.IMessageBus";
     public const string IWorld = "Flos.Core.State.IWorld";
     public const string IStateSlice = "Flos.Core.State.IStateSlice";
-    public const string IServiceScope = "Flos.Core.Module.IServiceScope";
+    public const string IServiceRegistry = "Flos.Core.Module.IServiceRegistry";
 
     public const string IRandom = "Flos.Random.IRandom";
 

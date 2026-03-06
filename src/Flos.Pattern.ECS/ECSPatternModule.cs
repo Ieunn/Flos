@@ -18,10 +18,9 @@ public sealed class ECSPatternModule : ModuleBase
 
     private IMessageBus? _bus;
     private IDisposable? _tickSub;
-    private bool _paused;
 
     public override string Id => "ECS";
-    public override IReadOnlyList<string> Dependencies => [];
+    public override IReadOnlyList<string> Dependencies => Array.Empty<string>();
 
     /// <summary>
     /// Creates the ECS pattern module.
@@ -36,35 +35,23 @@ public sealed class ECSPatternModule : ModuleBase
         _tickPriority = tickPriority;
     }
 
-    public override void OnLoad(IServiceScope scope)
+    public override void OnLoad(ILoadScope scope)
     {
         base.OnLoad(scope);
 
-        var patternRegistry = scope.Resolve<IPatternRegistry>();
-        patternRegistry.Register(ECSPattern.Id);
+        scope.Patterns.Register(ECSPattern.Id);
 
-        scope.RegisterInstance<ICommandBuffer>(_commandBuffer);
-        scope.RegisterInstance<IECSAdapter>(_adapter);
-
-        var world = scope.Resolve<IWorld>();
-        _adapter.CreateWorld(world);
-
-        _bus = scope.Resolve<IMessageBus>();
+        scope.Register<ICommandBuffer>(_commandBuffer);
+        scope.Register<IECSAdapter>(_adapter);
     }
 
     public override void OnInitialize()
     {
-        _tickSub = _bus!.Listen<TickMessage>(OnTick, _tickPriority);
-    }
+        var world = Scope.Resolve<IWorld>();
+        _adapter.CreateWorld(world);
 
-    public override void OnPause()
-    {
-        _paused = true;
-    }
-
-    public override void OnResume()
-    {
-        _paused = false;
+        _bus = Scope.Resolve<IMessageBus>();
+        _tickSub = _bus.Listen<TickMessage>(OnTick, _tickPriority);
     }
 
     public override void OnShutdown()
@@ -76,10 +63,13 @@ public sealed class ECSPatternModule : ModuleBase
 
     private void OnTick(TickMessage tick)
     {
-        if (_paused) return;
-
-        _adapter.Tick(tick.DeltaTime);
-
-        _commandBuffer.Drain(_bus!);
+        try
+        {
+            _adapter.Tick(tick.DeltaTime);
+        }
+        finally
+        {
+            _commandBuffer.Drain(_bus!);
+        }
     }
 }

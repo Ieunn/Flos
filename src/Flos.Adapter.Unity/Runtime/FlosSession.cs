@@ -12,14 +12,11 @@ namespace Flos.Adapter.Unity
     /// Attach to a GameObject to bootstrap Flos in Unity.
     /// Subclass and override <see cref="GetModules"/> to add game modules.
     /// </summary>
-    public class FlosSession : MonoBehaviour
+    public abstract class FlosSession : MonoBehaviour
     {
         [Header("Scheduling")]
         [SerializeField] private TickMode _tickMode = TickMode.FixedTick;
         [SerializeField] private float _fixedTimeStep = 1f / 60f;
-
-        [Header("Determinism")]
-        [SerializeField] private int _randomSeed = 42;
 
         [Header("Lifecycle")]
         [SerializeField] private bool _autoInitialize = true;
@@ -31,9 +28,9 @@ namespace Flos.Adapter.Unity
         public ISession? Session => _session;
 
         /// <summary>
-        /// Optional DI adapter. Set before <see cref="Initialize"/> to use a custom DI container.
+        /// Optional scope factory. Set before <see cref="Initialize"/> to use a custom DI container.
         /// </summary>
-        public IDIAdapter? DIAdapter { get; set; }
+        public IScopeFactory? ScopeFactory { get; set; }
 
         protected virtual void Awake()
         {
@@ -100,8 +97,7 @@ namespace Flos.Adapter.Unity
                 Modules = GetModules(),
                 TickMode = _tickMode,
                 FixedTimeStep = _fixedTimeStep,
-                RandomSeed = _randomSeed,
-                DIAdapter = DIAdapter,
+                ScopeFactory = ScopeFactory,
             });
         }
 
@@ -116,11 +112,8 @@ namespace Flos.Adapter.Unity
         }
 
         /// <summary>
-        /// Override to provide game modules. Default returns only the Unity adapter module.
+        /// Override to provide game modules. Must include <see cref="UnityAdapterModule"/> and any game-specific modules.
         /// </summary>
-        protected virtual IReadOnlyList<IModule> GetModules()
-        {
-            return new IModule[] { new UnityAdapterModule() };
-        }
+        protected abstract IReadOnlyList<IModule> GetModules();
     }
 }

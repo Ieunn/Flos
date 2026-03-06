@@ -20,14 +20,14 @@ This guide covers the practical usage of the Flos framework. It assumes you are 
 
 ### Minimal Session (No Pattern)
 
-The simplest Flos application creates a session with a random module and a custom game module:
+The simplest Flos application creates a session with a custom module:
 
 ```csharp
 using Flos.Core.Module;
 using Flos.Core.Sessions;
 using Flos.Core.Scheduling;
 using Flos.Core.State;
-using Flos.Random;
+using Flos.Core.Messaging;
 
 // 1. Define your state
 public class CounterState : IStateSlice
@@ -39,13 +39,25 @@ public class CounterState : IStateSlice
 public class CounterModule : ModuleBase
 {
     public override string Id => "Counter";
-    public override IReadOnlyList<string> Dependencies => ["Random"];
 
-    public override void OnLoad(IServiceScope scope)
+    private IWorld _world = null!;
+
+    public override void OnLoad(ILoadScope scope)
     {
         base.OnLoad(scope);
-        var world = scope.Resolve<IWorld>();
-        world.Register(new CounterState());
+        scope.World.Register(new CounterState());
+    }
+
+    public override void OnInitialize()
+    {
+        _world = Scope.Resolve<IWorld>();
+        var bus = Scope.Resolve<IMessageBus>();
+        bus.Subscribe<TickMessage>(OnTick);
+    }
+
+    private void OnTick(TickMessage tick)
+    {
+        _world.Get<CounterState>().Value++;
     }
 }
 
@@ -53,16 +65,15 @@ public class CounterModule : ModuleBase
 var session = new Session();
 session.Initialize(new SessionConfig
 {
-    Modules = [new RandomModule(), new CounterModule()],
+    Modules = [new CounterModule()],
     TickMode = TickMode.StepBased,
-    RandomSeed = 42
 });
 session.Start();
 
 // 4. Access state and tick
 var counter = session.World.Get<CounterState>();
-counter.Value++;
-session.Scheduler.Step();
+session.Scheduler.Step(); // Value is now 1
+session.Scheduler.Step(); // Value is now 2
 
 // 5. Cleanup
 session.Shutdown();
@@ -82,19 +93,18 @@ var session = new Session();
 session.Initialize(new SessionConfig
 {
     Modules = [
-        new RandomModule(),
+        new RandomModule(42),
         new IdentityModule(),
         new SnapshotModule(),
         new CQRSPatternModule(),
         new MyGameModule()
     ],
     TickMode = TickMode.StepBased,
-    RandomSeed = 42
 });
 session.Start();
 
 var pipeline = session.RootScope.Resolve<IPipeline>();
-pipeline.Send(new MyCommand(CommandSource.System, null));
+pipeline.Send(new MyCommand());
 ```
 
 ---
@@ -120,12 +130,13 @@ graph TD
 
     subgraph Lateral
         AN[Analyzers]
-        TE[Testing]
         GN[Generators]
     end
 ```
 
 **Dependency direction:** Games → Modules → Patterns → Core ← Adapters.
+
+Adapters depend only on Core. They bridge engine lifecycle (Unity MonoBehaviour, Godot Node) to Flos sessions. Module composition — which modules to load and how to configure them — is a game-level decision.
 
 ### Session
 
@@ -135,14 +146,19 @@ graph TD
 stateDiagram-v2
     [*] --> Created
     Created --> Initializing : Initialize()
-    Initializing --> Running : Start()
+    Initializing --> Initialized
+    Initializing --> Disposed : failure
+    Initialized --> Running : Start()
+    Initialized --> Disposed : Start() failure
     Running --> Paused : Pause()
     Paused --> Running : Resume()
     Running --> ShuttingDown : Shutdown()
     Paused --> ShuttingDown : Shutdown()
-    ShuttingDown --> Disposed : Dispose()
-    Initializing --> ShuttingDown : Shutdown()
+    Initialized --> ShuttingDown : Shutdown()
+    ShuttingDown --> Disposed
 ```
+
+**Forward-only lifecycle:** any failure during `Initialize()` or `Start()` transitions directly to `Disposed`. To retry, create a new `Session` instance.
 
 **Lifecycle messages** are published at each transition: `SessionInitializedMessage`, `SessionStartedMessage`, `SessionPausedMessage`, `SessionResumedMessage`, `SessionShutdownMessage`.
 
@@ -157,31 +173,53 @@ world.Register(new InventoryState());
 // Access anywhere
 var inventory = world.Get<InventoryState>();
 inventory.Gold += 100;
+
+// Remove a slice (rare — typically at shutdown)
+world.Unregister<InventoryState>();
 ```
 
 State slices are **mutable reference types** (classes). Each type can only be registered once. Core does not enforce how state is mutated — that's a Pattern-level concern.
+
+During `Session.Initialize()`, the world is registered as both `IWorld` (read-write) and `IStateReader` (read-only) in the service scope. Modules that only need read access should resolve `IStateReader`.
+
+When a slice is replaced (via `Register` overwrite or snapshot `RestoreTo`), the old slice is disposed if it implements `IDisposable`. This ensures `ArrayPool`-backed collections in slices return their rented arrays.
+
+State slices that participate in snapshots must implement `IDeepCloneable<T>`. Use the `[DeepClone]` source generator from `Flos.Generators` for automatic implementation:
+
+```csharp
+[DeepClone]
+public class InventoryState : IStateSlice, IDeepCloneable<InventoryState>
+{
+    public int Gold { get; set; }
+    public IOrderedMap<string, int> Items { get; set; } = new SortedArrayMap<string, int>();
+    // DeepClone() is auto-generated
+}
+```
 
 ### MessageBus
 
 `IMessageBus` provides type-safe pub/sub with priority-ordered, synchronous dispatch:
 
 ```csharp
-// Subscribe (lower priority = earlier execution)
-// WARNING: This anti-pattern is for simplicity but not recommended, see Common Mistakes
-var sub = bus.Subscribe<DamageMessage>(msg =>
-{
-    // handle damage
-}, priority: 0);
+// Subscribe with an instance method (no closure allocation)
+// Returns a long subscription ID for later unsubscribe
+long subId = bus.Subscribe<DamageMessage>(OnDamage);
+
+// Or use Listen for IDisposable-based lifetime
+IDisposable token = bus.Listen<DamageMessage>(OnDamage);
 
 // Publish
 bus.Publish(new DamageMessage(target, amount));
 
 // Unsubscribe
-sub.Dispose();
+bus.Unsubscribe<DamageMessage>(subId);
+// — or —
+token.Dispose();
 ```
 
 **Key properties:**
 - Zero-allocation dispatch in steady state
+- `Subscribe` returns `long` (not `int`) — use `Unsubscribe` with the same ID
 - Middleware pipeline for cross-cutting concerns (e.g., CQRS command routing)
 - Re-entrant: publishing during a publish is safe
 - Main-thread only — use `IDispatcher` for cross-thread access
@@ -205,6 +243,45 @@ scheduler.Tick(deltaTime); // from engine's Update loop
 
 Each tick: drain `IDispatcher` queue → publish `TickMessage` → subscribers execute.
 
+### Service Registration Guarantees
+
+Services are available at different points in the module lifecycle:
+
+| Service | Available during `OnLoad` | Available during `OnInitialize` |
+|---------|--------------------------|--------------------------------|
+| `IWorld` | Yes (`scope.World`) | Yes |
+| `IStateReader` | No (use `scope.World` for registration) | Yes |
+| `IMessageBus` | Yes (`scope.Bus`) | Yes |
+| `IScheduler` | Yes (`scope.Scheduler`) | Yes |
+| `IDispatcher` | Yes (`scope.Dispatcher`) | Yes |
+| `IPatternRegistry` | Yes (`scope.Patterns`) | Yes |
+| `SessionConfig` | Yes (`scope.Config`) | Yes |
+| Your module's services | Yes (you just registered them) | Yes |
+| Other modules' services | **No** (`Resolve<T>()` not available on `ILoadScope`) | Yes (scope is locked) |
+
+**Rule of thumb:** Register services and state slices in `OnLoad` using `ILoadScope`. Resolve cross-module services and cache references in `OnInitialize` using `Scope` (the full `IServiceRegistry`). The scope is locked between `OnLoad` and `OnInitialize` — no more registrations are allowed after that point.
+
+### Snapshot & Replay
+
+`ISnapshots` (from `Flos.Snapshot`) captures deep-copy snapshots of all registered state slices and can restore the world to a previous state:
+
+```csharp
+var snapshots = scope.Resolve<ISnapshots>();
+
+// Capture current state
+IStateView snapshot = snapshots.Capture(world);
+
+// ... game progresses ...
+
+// Restore to captured state (snapshot remains valid)
+snapshots.RestoreTo(world, snapshot);
+
+// Or restore and consume in one step (snapshot is invalidated, more efficient)
+snapshots.RestoreAndConsume(world, snapshot);
+```
+
+The CQRS pattern uses snapshots automatically for command rollback. For standalone games, use `ISnapshots` directly for save/load or undo features. Slices that are not registered with `ISnapshots.RegisterSlice<T>()` are silently skipped during capture and restore.
+
 ### Modules
 
 Modules are black boxes with a defined lifecycle:
@@ -214,8 +291,8 @@ sequenceDiagram
     participant S as Session
     participant M as Module
 
-    S->>M: OnLoad(scope)
-    Note right of M: Register services, state slices
+    S->>M: OnLoad(ILoadScope)
+    Note right of M: Register services, access infrastructure
     S->>M: OnInitialize()
     Note right of M: Resolve cross-module services
     S->>M: OnStart()
@@ -242,7 +319,7 @@ sequenceDiagram
 | **State changes** | Direct mutation | Via commands/events | Direct system writes | Mixed |
 | **Frequency** | Low | Low–Medium | High (thousands/frame) | Varies |
 | **Auditability** | None | Full event journal | None built-in | Per-pattern |
-| **Replay** | Manual | Automatic | Manual | Partial |
+| **Replay** | Manual | Via event journal | Manual | Partial |
 | **Best for** | Prototypes, simple games | Card/board/strategy | Bullet-hell, RTS, physics | Complex games |
 
 ### Standalone (No Pattern)
@@ -254,16 +331,19 @@ public class MyModule : ModuleBase
 {
     public override string Id => "My";
 
+    private IWorld _world = null!;
+
     public override void OnInitialize()
     {
+        _world = Scope.Resolve<IWorld>();
         var bus = Scope.Resolve<IMessageBus>();
         bus.Subscribe<TickMessage>(OnTick);
     }
 
     private void OnTick(TickMessage tick)
     {
-        var state = Scope.Resolve<IWorld>().Get<MyState>();
-        state.Counter++;
+        // Resolve IWorld once in OnInitialize, not per-tick (FLOS012)
+        _world.Get<MyState>().Counter++;
     }
 }
 ```
@@ -272,7 +352,7 @@ public class MyModule : ModuleBase
 
 Commands are validated against read-only state. Events mutate state atomically. Full audit trail via event journal.
 
-**Use when:** You need replay, undo, networking, or auditable state transitions.
+**Use when:** You need replay, undo, networking, or auditable state transitions. Supports configurable fault handling: `Strict` rolls back on applier failure, `Tolerant` skips failing appliers and continues, `Fatal` crashes immediately.
 
 ### ECS
 
@@ -307,11 +387,10 @@ public class HealthModule : ModuleBase
 
     private IMessageBus _bus = null!;
 
-    public override void OnLoad(IServiceScope scope)
+    public override void OnLoad(ILoadScope scope)
     {
         base.OnLoad(scope);
-        var world = scope.Resolve<IWorld>();
-        world.Register(new HealthState());
+        scope.World.Register(new HealthState());
     }
 
     public override void OnInitialize()
@@ -343,7 +422,7 @@ For cross-module communication, create a separate Contract package containing on
 - Read-only service interfaces
 - `ErrorCode` constants
 
-Other modules depend on Contract packages, never on implementation packages. The FLOS017 analyzer enforces this.
+Other modules depend on Contract packages, never on implementation packages. The FLOS014 analyzer enforces this.
 
 ### Optional Dependencies
 
@@ -381,20 +460,21 @@ public class MyPatternModule : ModuleBase
 {
     public override string Id => "MyPattern";
 
-    public override void OnLoad(IServiceScope scope)
+    public override void OnLoad(ILoadScope scope)
     {
         base.OnLoad(scope);
 
         // 3. Register the pattern
-        var registry = scope.Resolve<IPatternRegistry>();
-        registry.Register(MyPattern.Id);
+        scope.Patterns.Register(MyPattern.Id);
 
         // 4. Register pattern services
-        scope.RegisterInstance<IMyPatternService>(new MyPatternService());
+        scope.Register<IMyPatternService>(new MyPatternService());
 
         // 5. Install middleware (optional)
-        var bus = scope.Resolve<IMessageBus>();
-        bus.Use(new MyPatternMiddleware());
+        // Middleware can be registered in OnLoad — the bus instance is available via scope.Bus.
+        // CQRS does this: it installs DeferredCQRSMiddleware during OnLoad so commands
+        // published via bus.Publish() are intercepted from the very first message.
+        scope.Bus.Use(new MyPatternMiddleware());
     }
 
     public override void OnInitialize()
@@ -410,9 +490,15 @@ public class MyPatternModule : ModuleBase
 
 Patterns are structurally equal — no pattern has Core-level privilege. Multiple patterns coexist via `TickMessage` subscription priority.
 
+**Middleware timing:** Middleware can be installed during either `OnLoad` or `OnInitialize`. The CQRS pattern installs its `DeferredCQRSMiddleware` during `OnLoad` to intercept commands from the first message. If your middleware depends on cross-module services, install it in `OnInitialize` after the scope is locked. Late-added middleware (after the first `Publish` call) triggers a warning but still works.
+
 ---
 
 ## Engine Integration Guide
+
+Adapters bridge engine lifecycle to Flos sessions. They depend only on Core and provide platform-specific implementations for logging, assets, save storage, and profiling.
+
+Module composition (which modules to load) is always a game-level decision — subclass the adapter's `FlosSession` and override `GetModules()`.
 
 ### Console Adapter
 
@@ -422,9 +508,8 @@ For headless servers, CLI testing, and prototypes:
 var session = new Session();
 session.Initialize(new SessionConfig
 {
-    Modules = [new ConsoleAdapterModule(), new RandomModule(), /* ... */],
+    Modules = [new ConsoleAdapterModule(), /* game modules */],
     TickMode = TickMode.StepBased,
-    RandomSeed = 42
 });
 session.Start();
 
@@ -449,19 +534,29 @@ OnApplicationPause →    Session.Pause() / Resume()
 OnDestroy()        →    Session.Shutdown() + Dispose()
 ```
 
-The `FlosSession` MonoBehaviour manages this mapping automatically. For manual control:
+Subclass `FlosSession` (MonoBehaviour) and override `GetModules()`:
 
 ```csharp
-// In a MonoBehaviour
+public class MyGameSession : FlosSession
+{
+    protected override IReadOnlyList<IModule> GetModules()
+    {
+        return [new UnityAdapterModule(), /* game modules */];
+    }
+}
+```
+
+For manual control without the `FlosSession` component:
+
+```csharp
 void Awake()
 {
     _session = new Session();
     _session.Initialize(new SessionConfig
     {
-        Modules = [new UnityAdapterModule(), new RandomModule(), /* ... */],
+        Modules = [new UnityAdapterModule(), /* game modules */],
         TickMode = TickMode.FixedTick,
-        RandomSeed = 42,
-        DIAdapter = new VContainerDIAdapter(container) // optional
+        ScopeFactory = new VContainerScopeFactory(container) // optional
     });
 }
 
@@ -481,7 +576,19 @@ Pause notification →    Session.Pause() / Resume()
 _ExitTree()        →    Session.Shutdown() + Dispose()
 ```
 
-The `FlosSession` Node manages this mapping. For manual control:
+Subclass `FlosSession` (Node) and override `GetModules()`:
+
+```csharp
+public partial class MyGameSession : FlosSession
+{
+    protected override IReadOnlyList<IModule> GetModules()
+    {
+        return [new GodotAdapterModule(), /* game modules */];
+    }
+}
+```
+
+For manual control without the `FlosSession` node:
 
 ```csharp
 public override void _Ready()
@@ -489,16 +596,15 @@ public override void _Ready()
     _session = new Session();
     _session.Initialize(new SessionConfig
     {
-        Modules = [new GodotAdapterModule(), new RandomModule(), /* ... */],
+        Modules = [new GodotAdapterModule(), /* game modules */],
         TickMode = TickMode.FixedTick,
-        RandomSeed = 42
     });
     _session.Start();
 }
 
 public override void _PhysicsProcess(double delta)
 {
-    _session.Scheduler.Tick((float)delta);
+    _session.Scheduler.Tick(delta);
 }
 ```
 
@@ -519,15 +625,16 @@ public override void _PhysicsProcess(double delta)
 Use for expected failures in game logic. Never throw exceptions for control flow.
 
 ```csharp
-public Result<IReadOnlyList<IEvent>> Handle(BuyItemCommand cmd, IStateView state)
+public ErrorCode Handle(BuyItemCommand cmd, IStateReader state, EventBuffer events)
 {
     var shop = state.Get<ShopState>();
     var wallet = state.Get<WalletState>();
 
     if (wallet.Gold < shop.GetPrice(cmd.ItemId))
-        return Result<IReadOnlyList<IEvent>>.Fail(GameErrors.InsufficientGold);
+        return GameErrors.InsufficientGold;
 
-    return Result<IReadOnlyList<IEvent>>.Ok([new ItemBoughtEvent(cmd.ItemId)]);
+    events.Add(new ItemBoughtEvent(cmd.ItemId));
+    return default; // success
 }
 ```
 

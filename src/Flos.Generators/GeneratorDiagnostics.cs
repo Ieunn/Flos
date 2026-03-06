@@ -25,9 +25,17 @@ internal static class GeneratorDiagnostics
 
     public static readonly DiagnosticDescriptor InvalidDeepCloneTarget = new(
         "FLOSGEN003",
-        "Invalid [GenerateDeepClone] target",
-        "Type '{0}' has [GenerateDeepClone] but does not implement IStateSlice",
+        "Invalid [DeepClone] target",
+        "Type '{0}' has [DeepClone] but does not implement IStateSlice",
         "Generation",
         DiagnosticSeverity.Warning,
+        isEnabledByDefault: true);
+
+    public static readonly DiagnosticDescriptor MissingParameterlessConstructor = new(
+        "FLOSGEN004",
+        "Handler/applier type requires a parameterless constructor",
+        "Type '{0}' has [AutoRegister] but has no parameterless constructor; it cannot be auto-registered",
+        "Generation",
+        DiagnosticSeverity.Error,
         isEnabledByDefault: true);
 }

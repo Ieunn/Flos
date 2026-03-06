@@ -7,16 +7,16 @@ using Microsoft.CodeAnalysis.Diagnostics;
 namespace Flos.Analyzers;
 
 /// <summary>
-/// FLOS017: Implementation types in Contract package assembly.
+/// FLOS014: Implementation types in Contract package assembly.
 /// Scans for non-interface, non-abstract, non-record-struct types that don't match
 /// the allowed patterns (message types, IStateSlice defs, read-only interfaces, ErrorCode constants).
 /// Triggered by assembly name ending in ".Contracts".
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
-public sealed class FLOS017ContractPackageAnalyzer : DiagnosticAnalyzer
+public sealed class FLOS014ContractPackageAnalyzer : DiagnosticAnalyzer
 {
     private static readonly DiagnosticDescriptor Rule = new(
-        DiagnosticIds.FLOS017,
+        DiagnosticIds.FLOS014,
         title: "Implementation in contract package",
         messageFormat: "Type '{0}' in contract package contains implementation; contracts should only contain message types, IStateSlice definitions, read-only interfaces, and ErrorCode constants",
         category: "Architecture",
@@ -31,18 +31,22 @@ public sealed class FLOS017ContractPackageAnalyzer : DiagnosticAnalyzer
     {
         context.ConfigureGeneratedCodeAnalysis(GeneratedCodeAnalysisFlags.None);
         context.EnableConcurrentExecution();
-        context.RegisterSyntaxNodeAction(AnalyzeClass, SyntaxKind.ClassDeclaration);
+        context.RegisterSyntaxNodeAction(AnalyzeTypeDeclaration,
+            SyntaxKind.ClassDeclaration,
+            SyntaxKind.StructDeclaration,
+            SyntaxKind.RecordDeclaration,
+            SyntaxKind.RecordStructDeclaration);
     }
 
-    private static void AnalyzeClass(SyntaxNodeAnalysisContext context)
+    private static void AnalyzeTypeDeclaration(SyntaxNodeAnalysisContext context)
     {
         var assemblyName = context.SemanticModel.Compilation.AssemblyName ?? "";
         if (!assemblyName.EndsWith(".Contracts", System.StringComparison.OrdinalIgnoreCase) &&
             !assemblyName.EndsWith(".Contract", System.StringComparison.OrdinalIgnoreCase))
             return;
 
-        var classDecl = (ClassDeclarationSyntax)context.Node;
-        var typeSymbol = context.SemanticModel.GetDeclaredSymbol(classDecl) as INamedTypeSymbol;
+        var typeDecl = (TypeDeclarationSyntax)context.Node;
+        var typeSymbol = context.SemanticModel.GetDeclaredSymbol(typeDecl) as INamedTypeSymbol;
         if (typeSymbol is null) return;
 
         if (typeSymbol.TypeKind == TypeKind.Interface) return;
@@ -50,6 +54,8 @@ public sealed class FLOS017ContractPackageAnalyzer : DiagnosticAnalyzer
         if (typeSymbol.IsAbstract) return;
 
         if (typeSymbol.IsStatic) return;
+
+        if (typeSymbol.IsValueType) return;
 
         if (ImplementsInterface(typeSymbol, TypeNames.IStateSlice)) return;
 
@@ -61,7 +67,24 @@ public sealed class FLOS017ContractPackageAnalyzer : DiagnosticAnalyzer
         if (InheritsFrom(typeSymbol, "System.Attribute"))
             return;
 
-        context.ReportDiagnostic(Diagnostic.Create(Rule, classDecl.Identifier.GetLocation(), typeSymbol.Name));
+        var ns = typeSymbol.ContainingNamespace?.ToDisplayString() ?? "";
+        if (IsFrameworkInternalNamespace(ns))
+            return;
+
+        context.ReportDiagnostic(Diagnostic.Create(Rule, typeDecl.Identifier.GetLocation(), typeSymbol.Name));
+    }
+
+    private static bool IsFrameworkInternalNamespace(string ns)
+    {
+        return ns is "Flos.Core" or "Flos.Core.Messaging" or "Flos.Core.State"
+            or "Flos.Core.Errors" or "Flos.Core.Module" or "Flos.Core.Scheduling"
+            or "Flos.Core.Sessions" or "Flos.Core.Logging" or "Flos.Core.Annotations"
+            or "Flos.Random" or "Flos.Identity" or "Flos.Snapshot" or "Flos.Collections"
+            or "Flos.Pattern.CQRS" or "Flos.Pattern.ECS"
+            or "Flos.Diagnostics" or "Flos.Serialization"
+            or "Flos.Adapter" or "Flos.Adapter.Console"
+            or "Flos.Adapter.Unity" or "Flos.Adapter.Godot"
+            or "Flos.Generators" or "Flos.Analyzers";
     }
 
     private static bool ImplementsInterface(INamedTypeSymbol typeSymbol, string interfaceFullName)

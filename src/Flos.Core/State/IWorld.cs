@@ -3,19 +3,10 @@ namespace Flos.Core.State;
 /// <summary>
 /// Single source of truth for all game state.
 /// Stores named <see cref="IStateSlice"/> instances keyed by type.
+/// Extends <see cref="IStateReader"/> with mutation operations.
 /// </summary>
-public interface IWorld
+public interface IWorld : IStateReader
 {
-    /// <summary>
-    /// Retrieves the state slice of type <typeparamref name="T"/>.
-    /// </summary>
-    /// <typeparam name="T">The slice type.</typeparam>
-    /// <returns>The registered slice instance.</returns>
-    /// <exception cref="Flos.Core.Errors.FlosException">
-    /// Thrown with <see cref="Flos.Core.Errors.CoreErrors.SliceNotFound"/> when no slice of that type is registered.
-    /// </exception>
-    T Get<T>() where T : class, IStateSlice;
-
     /// <summary>
     /// Registers an initial state slice.
     /// If a slice of the same type is already registered, it is overwritten and a warning is logged.
@@ -25,14 +16,11 @@ public interface IWorld
     void Register<T>(T initialState) where T : class, IStateSlice;
 
     /// <summary>
-    /// Retrieves a state slice by its runtime type key.
+    /// Removes a previously registered state slice.
+    /// If the slice implements <see cref="System.IDisposable"/>, it is disposed.
     /// </summary>
-    /// <param name="type">The type key of the slice.</param>
-    /// <returns>The registered slice instance.</returns>
-    /// <exception cref="Flos.Core.Errors.FlosException">
-    /// Thrown with <see cref="Flos.Core.Errors.CoreErrors.SliceNotFound"/> when no slice of that type is registered.
-    /// </exception>
-    IStateSlice GetSlice(Type type);
+    /// <typeparam name="T">The slice type to remove.</typeparam>
+    void Unregister<T>() where T : class, IStateSlice;
 
     /// <summary>
     /// Replaces a previously registered slice (used by snapshot restore).
@@ -43,9 +31,4 @@ public interface IWorld
     /// Thrown with <see cref="Flos.Core.Errors.CoreErrors.SliceNotFound"/> if no slice of that type is registered.
     /// </exception>
     void SetSlice(Type type, IStateSlice slice);
-
-    /// <summary>
-    /// Types of all registered slices, in registration order.
-    /// </summary>
-    IReadOnlyList<Type> RegisteredTypes { get; }
 }

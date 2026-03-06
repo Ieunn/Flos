@@ -19,15 +19,15 @@ public interface IMessageBus
     /// <typeparam name="T">The type of message to subscribe to.</typeparam>
     /// <param name="handler">The callback invoked when a message of type <typeparamref name="T"/> is published.</param>
     /// <param name="priority">Subscription priority; lower values execute first. Defaults to 0.</param>
-    /// <returns>An integer subscription ID that can be passed to <see cref="Unsubscribe{T}"/>.</returns>
-    int Subscribe<T>(Action<T> handler, int priority = 0) where T : IMessage;
+    /// <returns>A long subscription ID that can be passed to <see cref="Unsubscribe{T}"/>.</returns>
+    long Subscribe<T>(Action<T> handler, int priority = 0) where T : IMessage;
 
     /// <summary>
     /// Removes a subscription by its ID.
     /// </summary>
     /// <typeparam name="T">The message type the subscription was registered for.</typeparam>
     /// <param name="subscriptionId">The ID returned by <see cref="Subscribe{T}"/>.</param>
-    void Unsubscribe<T>(int subscriptionId) where T : IMessage;
+    void Unsubscribe<T>(long subscriptionId) where T : IMessage;
 
     /// <summary>
     /// Subscribes a handler and returns an <see cref="IDisposable"/> token that removes the subscription when disposed.
@@ -44,8 +44,5 @@ public interface IMessageBus
     /// Must be called before the first <see cref="Publish{T}"/> call.
     /// </summary>
     /// <param name="middleware">The middleware to add to the pipeline.</param>
-    /// <exception cref="Flos.Core.Errors.FlosException">
-    /// Thrown with <see cref="Flos.Core.Errors.CoreErrors.MiddlewareAfterPublish"/> if called after the first <see cref="Publish{T}"/>.
-    /// </exception>
     void Use(IMessageMiddleware middleware);
 }

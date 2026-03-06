@@ -13,7 +13,8 @@ namespace Flos.Core.Sessions;
 public sealed class Session : ISession
 {
     private SessionState _state = SessionState.Created;
-    private IServiceScope? _rootScope;
+    private readonly ThreadGuard _threadGuard = new("Session");
+    private IServiceRegistry? _rootScope;
     private IWorld? _world;
     private IScheduler? _scheduler;
     private IMessageBus? _bus;
@@ -24,60 +25,80 @@ public sealed class Session : ISession
     public SessionState State => _state;
 
     /// <inheritdoc />
-    public IWorld World => _world ?? throw new InvalidOperationException("Session not initialized.");
+    public IWorld World => _state == SessionState.Disposed
+        ? throw new FlosException(CoreErrors.SessionDisposed, "Session has been disposed.")
+        : _world ?? throw new FlosException(CoreErrors.SessionNotInitialized, "Session not initialized.");
 
     /// <inheritdoc />
-    public IScheduler Scheduler => _scheduler ?? throw new InvalidOperationException("Session not initialized.");
+    public IScheduler Scheduler => _state == SessionState.Disposed
+        ? throw new FlosException(CoreErrors.SessionDisposed, "Session has been disposed.")
+        : _scheduler ?? throw new FlosException(CoreErrors.SessionNotInitialized, "Session not initialized.");
 
     /// <inheritdoc />
-    public IMessageBus MessageBus => _bus ?? throw new InvalidOperationException("Session not initialized.");
+    public IMessageBus MessageBus => _state == SessionState.Disposed
+        ? throw new FlosException(CoreErrors.SessionDisposed, "Session has been disposed.")
+        : _bus ?? throw new FlosException(CoreErrors.SessionNotInitialized, "Session not initialized.");
 
     /// <inheritdoc />
-    public IServiceScope RootScope => _rootScope ?? throw new InvalidOperationException("Session not initialized.");
+    public IServiceRegistry RootScope => _state == SessionState.Disposed
+        ? throw new FlosException(CoreErrors.SessionDisposed, "Session has been disposed.")
+        : _rootScope ?? throw new FlosException(CoreErrors.SessionNotInitialized, "Session not initialized.");
 
     /// <inheritdoc />
     /// <exception cref="FlosException">Thrown with <see cref="CoreErrors.InitializationFailed"/> when module loading or initialization fails.</exception>
     public void Initialize(SessionConfig config)
     {
+        _threadGuard.Assert();
         if (_state != SessionState.Created)
         {
-            if (CoreLog.Handler is not null)
-                CoreLog.Warn($"Initialize() called in state {_state}. Ignored.");
+            CoreLog.Warn($"Initialize() called in state {_state}. Ignored.");
             return;
+        }
+
+        if (config.TickMode == TickMode.FixedTick && config.FixedTimeStep <= 0.0)
+        {
+            throw new FlosException(CoreErrors.InvalidConfiguration,
+                $"FixedTimeStep must be greater than 0 in FixedTick mode, but was {config.FixedTimeStep}.");
         }
 
         _state = SessionState.Initializing;
 
+#if DEBUG
+        FlosDebug.EnableForCurrentThread();
+#endif
+
         var dispatcher = new Dispatcher();
 
-        _rootScope = config.DIAdapter?.CreateRootScope() ?? new BuiltInMinimalScope();
+        _rootScope = config.ScopeFactory?.CreateRootScope() ?? new BuiltInMinimalScope();
 
-        _rootScope.RegisterInstance<SessionConfig>(config);
-        _rootScope.RegisterInstance<IDispatcher>(dispatcher);
+        _rootScope.Register<SessionConfig>(config);
+        _rootScope.Register<IDispatcher>(dispatcher);
 
         var bus = new MessageBus();
         _bus = bus;
-        _rootScope.RegisterInstance<IMessageBus>(bus);
+        _rootScope.Register<IMessageBus>(bus);
 
         var world = new World();
         _world = world;
-        _rootScope.RegisterInstance<IWorld>(world);
+        _rootScope.Register<IWorld>(world);
+        _rootScope.Register<IStateReader>(world);
 
         var patternRegistry = new PatternRegistry();
-        _rootScope.RegisterInstance<IPatternRegistry>(patternRegistry);
+        _rootScope.Register<IPatternRegistry>(patternRegistry);
 
         var scheduler = new Scheduler(config.TickMode, config.FixedTimeStep, bus, dispatcher);
         _scheduler = scheduler;
-        _rootScope.RegisterInstance<IScheduler>(scheduler);
+        _rootScope.Register<IScheduler>(scheduler);
 
-        _loadedModules = [];
+        _loadedModules = new List<IModule>();
         try
         {
             _sortedModules = ModuleLoader.TopologicalSort(config.Modules);
 
+            var loadScope = new LoadScope(_rootScope, world, bus, scheduler, dispatcher, patternRegistry, config);
             foreach (var module in _sortedModules)
             {
-                module.OnLoad(_rootScope);
+                module.OnLoad(loadScope);
                 _loadedModules.Add(module);
             }
 
@@ -86,7 +107,7 @@ public sealed class Session : ISession
             if (_rootScope.IsRegistered<ISession>())
             {
                 throw new FlosException(CoreErrors.InitializationFailed,
-                    "ISession must not be registered in IServiceScope. Modules should not hold session references.");
+                    "ISession must not be registered in IServiceRegistry. Modules should not hold session references.");
             }
 
             _rootScope.Lock();
@@ -98,128 +119,143 @@ public sealed class Session : ISession
         }
         catch (Exception ex)
         {
-            for (int i = _loadedModules.Count - 1; i >= 0; i--)
-            {
-                try
-                {
-                    _loadedModules[i].OnShutdown();
-                }
-                catch (Exception shutdownEx)
-                {
-                    if (CoreLog.Handler is not null)
-                        CoreLog.Warn($"Exception during rollback shutdown of module '{_loadedModules[i].Id}': {shutdownEx.Message}");
-                }
-            }
-
-            _rootScope.Dispose();
-            _rootScope = null;
-            _world = null;
-            _scheduler = null;
-            _bus = null;
-            _sortedModules = null;
-            _loadedModules = null;
-            _state = SessionState.Created;
+            ShutdownModules(_loadedModules);
+            ReleaseResources();
+            _state = SessionState.Disposed;
 
             throw new FlosException(CoreErrors.InitializationFailed,
-                $"Session initialization failed: {ex.Message}");
+                $"Session initialization failed: {ex.Message}", ex);
         }
 
         _state = SessionState.Initialized;
-        _bus.Publish(new SessionInitializedMessage());
+        SafePublish(new SessionInitializedMessage());
     }
 
     /// <inheritdoc />
     public void Start()
     {
+        _threadGuard.Assert();
         if (_state != SessionState.Initialized)
         {
-            if (CoreLog.Handler is not null)
-                CoreLog.Warn($"Start() called in state {_state}. Ignored.");
+            CoreLog.Warn($"Start() called in state {_state}. Ignored.");
             return;
         }
 
-        foreach (var module in _sortedModules!)
+        for (int i = 0; i < _sortedModules!.Count; i++)
         {
-            module.OnStart();
+            try
+            {
+                _sortedModules[i].OnStart();
+            }
+            catch (Exception ex)
+            {
+                CoreLog.Error($"Exception during OnStart of module '{_sortedModules[i].Id}': {ex.Message}");
+
+                try { _bus!.Publish(new SessionShutdownMessage()); }
+                catch (Exception msgEx)
+                {
+                    CoreLog.Warn($"Exception during SessionShutdownMessage on Start rollback: {msgEx.Message}");
+                }
+
+                ShutdownModules(_sortedModules, startInclusive: 0, endInclusive: i);
+                ReleaseResources();
+                _state = SessionState.Disposed;
+
+                throw new FlosException(CoreErrors.InitializationFailed,
+                    $"Session start failed: {ex.Message}", ex);
+            }
         }
 
         _state = SessionState.Running;
-        _bus!.Publish(new SessionStartedMessage());
+        SafePublish(new SessionStartedMessage());
     }
 
     /// <inheritdoc />
     public void Pause()
     {
+        _threadGuard.Assert();
         if (_state != SessionState.Running)
         {
-            if (CoreLog.Handler is not null)
-                CoreLog.Warn($"Pause() called in state {_state}. Ignored.");
+            CoreLog.Warn($"Pause() called in state {_state}. Ignored.");
             return;
         }
 
         _state = SessionState.Paused;
         _scheduler!.SetPaused(true);
 
-        foreach (var module in _sortedModules!)
+        for (int i = 0; i < _sortedModules!.Count; i++)
         {
-            module.OnPause();
+            try
+            {
+                _sortedModules[i].OnPause();
+            }
+            catch (Exception ex)
+            {
+                CoreLog.Warn($"Exception during OnPause of module '{_sortedModules[i].Id}': {ex.Message}");
+            }
         }
 
-        _bus!.Publish(new SessionPausedMessage());
+        SafePublish(new SessionPausedMessage());
     }
 
     /// <inheritdoc />
     public void Resume()
     {
+        _threadGuard.Assert();
         if (_state != SessionState.Paused)
         {
-            if (CoreLog.Handler is not null)
-                CoreLog.Warn($"Resume() called in state {_state}. Ignored.");
+            CoreLog.Warn($"Resume() called in state {_state}. Ignored.");
             return;
         }
 
         _state = SessionState.Running;
         _scheduler!.SetPaused(false);
 
-        foreach (var module in _sortedModules!)
+        for (int i = 0; i < _sortedModules!.Count; i++)
         {
-            module.OnResume();
+            try
+            {
+                _sortedModules[i].OnResume();
+            }
+            catch (Exception ex)
+            {
+                CoreLog.Warn($"Exception during OnResume of module '{_sortedModules[i].Id}': {ex.Message}");
+            }
         }
 
         _scheduler!.DrainPausedBuffer();
 
-        _bus!.Publish(new SessionResumedMessage());
+        SafePublish(new SessionResumedMessage());
     }
 
     /// <inheritdoc />
     public void Shutdown()
     {
-        if (_state is SessionState.ShuttingDown or SessionState.Disposed or SessionState.Created)
+        _threadGuard.Assert();
+        if (_state is SessionState.Disposed or SessionState.Created)
         {
-            if (CoreLog.Handler is not null)
-                CoreLog.Warn($"Shutdown() called in state {_state}. Ignored.");
+            CoreLog.Warn($"Shutdown() called in state {_state}. Ignored.");
             return;
         }
 
         _state = SessionState.ShuttingDown;
+        SafePublish(new SessionShutdownMessage());
 
-        if (_sortedModules is not null)
+        ShutdownModules(_sortedModules);
+        ReleaseResources();
+        _state = SessionState.Disposed;
+    }
+
+    private void SafePublish<T>(T message) where T : IMessage
+    {
+        try
         {
-            for (int i = _sortedModules.Count - 1; i >= 0; i--)
-            {
-                try
-                {
-                    _sortedModules[i].OnShutdown();
-                }
-                catch (Exception ex)
-                {
-                    if (CoreLog.Handler is not null)
-                        CoreLog.Warn($"Exception during shutdown of module '{_sortedModules[i].Id}': {ex.Message}");
-                }
-            }
+            _bus!.Publish(message);
         }
-
-        _bus!.Publish(new SessionShutdownMessage());
+        catch (Exception ex)
+        {
+            CoreLog.Warn($"Exception during {typeof(T).Name}: {ex.Message}");
+        }
     }
 
     /// <summary>
@@ -227,14 +263,44 @@ public sealed class Session : ISession
     /// </summary>
     public void Dispose()
     {
+        _threadGuard.Assert();
         if (_state == SessionState.Disposed)
             return;
 
-        if (_state is not (SessionState.ShuttingDown or SessionState.Created))
+        if (_state == SessionState.Created)
         {
-            Shutdown();
+            ReleaseResources();
+            _state = SessionState.Disposed;
+            return;
         }
 
+        Shutdown();
+    }
+
+    private static void ShutdownModules(IReadOnlyList<IModule>? modules, int startInclusive = 0, int endInclusive = -1)
+    {
+        if (modules is null) return;
+
+        if (endInclusive < 0)
+        {
+            endInclusive = modules.Count - 1;
+        }
+
+        for (int i = endInclusive; i >= startInclusive; i--)
+        {
+            try
+            {
+                modules[i].OnShutdown();
+            }
+            catch (Exception ex)
+            {
+                CoreLog.Warn($"Exception during shutdown of module '{modules[i].Id}': {ex.Message}");
+            }
+        }
+    }
+
+    private void ReleaseResources()
+    {
         _rootScope?.Dispose();
         _rootScope = null;
         _world = null;
@@ -242,6 +308,5 @@ public sealed class Session : ISession
         _bus = null;
         _sortedModules = null;
         _loadedModules = null;
-        _state = SessionState.Disposed;
     }
 }

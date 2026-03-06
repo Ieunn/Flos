@@ -7,13 +7,20 @@ namespace Flos.Diagnostics;
 /// when FLOS_PROFILING is not defined, ensuring zero overhead on hot paths.
 /// </summary>
 /// <remarks>
-/// Usage pattern:
+/// Usage pattern — calls must be matched within try/finally for exception safety:
 /// <code>
 /// profiler.BeginSampleConditional("MyMethod");
-/// // ... hot path code ...
-/// profiler.EndSampleConditional();
+/// try
+/// {
+///     // ... hot path code ...
+/// }
+/// finally
+/// {
+///     profiler.EndSampleConditional();
+/// }
 /// </code>
 /// When FLOS_PROFILING is not defined, both calls are stripped by the compiler.
+/// For simple scoping, prefer <c>using (profiler.BeginSample("name")) { ... }</c> directly.
 /// </remarks>
 public static class ProfilerExtensions
 {
@@ -31,23 +38,37 @@ public static class ProfilerExtensions
 }
 
 /// <summary>
-/// Thread-local stack for conditional profiler samples.
+/// Thread-local bounded stack for conditional profiler samples.
+/// Capped at <see cref="MaxDepth"/> to prevent unbounded growth from mismatched calls.
 /// Only populated when FLOS_PROFILING is defined.
 /// </summary>
 internal static class ProfilerSampleStack
 {
+    private const int MaxDepth = 32;
+
     [ThreadStatic]
-    private static Stack<IDisposable>? _stack;
+    private static IDisposable?[]? _buffer;
+
+    [ThreadStatic]
+    private static int _count;
 
     internal static void Push(IDisposable handle)
     {
-        _stack ??= new Stack<IDisposable>();
-        _stack.Push(handle);
+        _buffer ??= new IDisposable?[MaxDepth];
+
+        if (_count >= MaxDepth)
+            return;
+
+        _buffer[_count++] = handle;
     }
 
     internal static IDisposable? Pop()
     {
-        if (_stack is null || _stack.Count == 0) return null;
-        return _stack.Pop();
+        if (_buffer is null || _count == 0)
+            return null;
+
+        var handle = _buffer[--_count];
+        _buffer[_count] = null;
+        return handle;
     }
 }

@@ -9,6 +9,8 @@ namespace Flos.Analyzers;
 /// <summary>
 /// FLOS006: Mutable static field access.
 /// Warns on read/write access to mutable static fields (non-readonly, non-const).
+/// Uses operation-level analysis for better performance — only fires on field references,
+/// not on every identifier in the compilation.
 /// </summary>
 [DiagnosticAnalyzer(LanguageNames.CSharp)]
 public sealed class FLOS006MutableStaticAnalyzer : DiagnosticAnalyzer
@@ -51,9 +53,6 @@ public sealed class FLOS006MutableStaticAnalyzer : DiagnosticAnalyzer
 
     private static void CheckSymbol(SyntaxNodeAnalysisContext context, ExpressionSyntax node)
     {
-        if (!ScopeHelper.IsInScopedContext(node, context.SemanticModel))
-            return;
-
         var symbolInfo = context.SemanticModel.GetSymbolInfo(node, context.CancellationToken);
         if (symbolInfo.Symbol is not IFieldSymbol field) return;
 
@@ -63,6 +62,9 @@ public sealed class FLOS006MutableStaticAnalyzer : DiagnosticAnalyzer
         var containingNs = field.ContainingType?.ContainingNamespace?.ToDisplayString() ?? "";
         if (containingNs.StartsWith("System", System.StringComparison.Ordinal)) return;
         if (containingNs.StartsWith("Microsoft", System.StringComparison.Ordinal)) return;
+
+        if (!ScopeHelper.IsInScopedContext(node, context.SemanticModel))
+            return;
 
         context.ReportDiagnostic(Diagnostic.Create(Rule, node.GetLocation(), field.Name));
     }

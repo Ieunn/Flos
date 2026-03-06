@@ -47,7 +47,7 @@ public sealed class FLOS002DateTimeAnalyzer : DiagnosticAnalyzer
 
         if (containingType == TypeNames.DateTime)
         {
-            if (memberName is "Now" or "UtcNow")
+            if (memberName is "Now" or "UtcNow" or "Today")
             {
                 isFlagged = true;
                 displayName = $"DateTime.{memberName}";

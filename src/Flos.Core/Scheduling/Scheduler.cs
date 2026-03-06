@@ -1,5 +1,3 @@
-using System.Diagnostics;
-using System.Runtime.CompilerServices;
 using Flos.Core.Errors;
 using Flos.Core.Logging;
 using Flos.Core.Messaging;
@@ -14,21 +12,13 @@ public sealed class Scheduler : IScheduler
 {
     private readonly IMessageBus _bus;
     private readonly IDispatcher _dispatcher;
-    private readonly float _fixedTimeStep;
-    private float _accumulator;
+    private readonly double _fixedTimeStep;
+    private double _accumulator;
     private bool _isTicking;
     private bool _isPaused;
     private int _pausedStepBuffer;
-    private float _pausedTimeBuffer;
-    private readonly int _ownerThreadId = Environment.CurrentManagedThreadId;
-
-    [Conditional("DEBUG")]
-    private void AssertMainThread([CallerMemberName] string? caller = null)
-    {
-        Debug.Assert(Environment.CurrentManagedThreadId == _ownerThreadId,
-            $"Scheduler.{caller}() called from thread {Environment.CurrentManagedThreadId}, " +
-            $"expected main thread {_ownerThreadId}. Use IDispatcher.Enqueue() for cross-thread access.");
-    }
+    private double _pausedTimeBuffer;
+    private readonly ThreadGuard _threadGuard = new("Scheduler");
 
     /// <inheritdoc />
     public TickMode Mode { get; }
@@ -37,7 +27,9 @@ public sealed class Scheduler : IScheduler
     public long CurrentTick { get; private set; }
 
     /// <inheritdoc />
-    public float ElapsedTime { get; private set; }
+    public double ElapsedTime => Mode == TickMode.FixedTick
+        ? CurrentTick * _fixedTimeStep
+        : 0.0;
 
     /// <inheritdoc />
     public int MaxCatchUpTicks
@@ -57,8 +49,12 @@ public sealed class Scheduler : IScheduler
     /// <param name="fixedTimeStep">Seconds per tick in <see cref="TickMode.FixedTick"/> mode.</param>
     /// <param name="bus">The message bus used to publish <see cref="TickMessage"/>.</param>
     /// <param name="dispatcher">The dispatcher drained at the start of each tick.</param>
-    public Scheduler(TickMode mode, float fixedTimeStep, IMessageBus bus, IDispatcher dispatcher)
+    public Scheduler(TickMode mode, double fixedTimeStep, IMessageBus bus, IDispatcher dispatcher)
     {
+        if (mode == TickMode.FixedTick && fixedTimeStep <= 0.0)
+            throw new FlosException(CoreErrors.InvalidConfiguration,
+                "fixedTimeStep must be greater than 0 in FixedTick mode.");
+
         Mode = mode;
         _fixedTimeStep = fixedTimeStep;
         _bus = bus;
@@ -69,7 +65,7 @@ public sealed class Scheduler : IScheduler
     /// <exception cref="FlosException">Thrown when a reentrant tick is detected (<see cref="CoreErrors.ReentrantTick"/>).</exception>
     public void Step()
     {
-        AssertMainThread();
+        _threadGuard.Assert();
         if (Mode != TickMode.StepBased)
         {
             CoreLog.Warn("Step() called in FixedTick mode. Ignored.");
@@ -87,27 +83,25 @@ public sealed class Scheduler : IScheduler
 
     /// <inheritdoc />
     /// <exception cref="FlosException">Thrown when a reentrant tick is detected (<see cref="CoreErrors.ReentrantTick"/>).</exception>
-    public void Tick(float deltaTime)
+    public void Tick(double deltaTime)
     {
-        AssertMainThread();
+        _threadGuard.Assert();
         if (Mode != TickMode.FixedTick)
         {
             CoreLog.Warn("Tick() called in StepBased mode. Ignored.");
             return;
         }
 
-        if (float.IsNaN(deltaTime) || float.IsInfinity(deltaTime))
+        if (double.IsNaN(deltaTime) || double.IsInfinity(deltaTime))
         {
-            if (CoreLog.Handler is not null)
-                CoreLog.Warn($"Tick() received invalid deltaTime ({deltaTime}). Ignored.");
+            CoreLog.Warn($"Tick() received invalid deltaTime ({deltaTime}). Ignored.");
             return;
         }
 
-        if (deltaTime < 0f)
+        if (deltaTime < 0.0)
         {
-            if (CoreLog.Handler is not null)
-                CoreLog.Warn($"Tick() received negative deltaTime ({deltaTime}). Clamped to 0.");
-            deltaTime = 0f;
+            CoreLog.Warn($"Tick() received negative deltaTime ({deltaTime}). Clamped to 0.");
+            deltaTime = 0.0;
         }
 
         if (_isPaused)
@@ -116,27 +110,13 @@ public sealed class Scheduler : IScheduler
             return;
         }
 
-        _accumulator += deltaTime;
-        int fired = 0;
-
-        while (_accumulator >= _fixedTimeStep && fired < MaxCatchUpTicks)
-        {
-            FireTick();
-            _accumulator -= _fixedTimeStep;
-            fired++;
-        }
-
-        if (_accumulator >= _fixedTimeStep)
-        {
-            if (CoreLog.Handler is not null)
-                CoreLog.Warn($"Scheduler catch-up clamped. Discarding {_accumulator / _fixedTimeStep:F1} excess ticks.");
-            _accumulator = 0f;
-        }
+        ConsumeTime(deltaTime);
     }
 
     /// <inheritdoc />
     public void SetPaused(bool paused)
     {
+        _threadGuard.Assert();
         _isPaused = paused;
     }
 
@@ -144,6 +124,7 @@ public sealed class Scheduler : IScheduler
     /// <returns>The number of ticks actually fired.</returns>
     public int DrainPausedBuffer()
     {
+        _threadGuard.Assert();
         int fired = 0;
 
         if (Mode == TickMode.StepBased)
@@ -158,22 +139,46 @@ public sealed class Scheduler : IScheduler
         }
         else
         {
-            _accumulator += _pausedTimeBuffer;
-            _pausedTimeBuffer = 0f;
+            double buffered = _pausedTimeBuffer;
+            fired = ConsumeTime(buffered);
+            _pausedTimeBuffer = 0.0;
+        }
 
-            while (_accumulator >= _fixedTimeStep && fired < MaxCatchUpTicks)
+        return fired;
+    }
+
+    /// <summary>
+    /// Inject <paramref name="deltaTime"/> to accumulator to trigger as more ticks as possible,
+    /// throw unnecessary ticks when catch up is restricted.
+    /// </summary>
+    /// <param name="deltaTime"></param>
+    /// <returns>Actual fired ticks.</returns>
+    private int ConsumeTime(double deltaTime)
+    {
+        _accumulator += deltaTime;
+        int fired = 0;
+
+        while (_accumulator >= _fixedTimeStep && fired < MaxCatchUpTicks)
+        {
+            _accumulator -= _fixedTimeStep;
+            FireTick();
+            fired++;
+        }
+
+        if (_accumulator >= _fixedTimeStep)
+        {
+            double excessTicks = _accumulator / _fixedTimeStep;
+            if (excessTicks <= long.MaxValue)
             {
-                FireTick();
-                _accumulator -= _fixedTimeStep;
-                fired++;
+                CoreLog.Warn(
+                    $"Scheduler catch-up clamped. Discarding {(long)excessTicks} excess ticks.");
+            }
+            else
+            {
+                CoreLog.Warn("Scheduler catch-up clamped. Discarding a large number of excess ticks.");
             }
 
-            if (_accumulator >= _fixedTimeStep)
-            {
-                if (CoreLog.Handler is not null)
-                    CoreLog.Warn($"Scheduler resume catch-up clamped. Discarding excess time.");
-                _accumulator = 0f;
-            }
+            _accumulator %= _fixedTimeStep;
         }
 
         return fired;
@@ -192,8 +197,7 @@ public sealed class Scheduler : IScheduler
             _dispatcher.DrainAll();
 
             CurrentTick++;
-            float dt = Mode == TickMode.FixedTick ? _fixedTimeStep : 0f;
-            ElapsedTime += dt;
+            double dt = Mode == TickMode.FixedTick ? _fixedTimeStep : 0.0;
 
             _bus.Publish(new TickMessage(CurrentTick, dt));
         }

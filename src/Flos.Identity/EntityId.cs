@@ -5,7 +5,7 @@ namespace Flos.Identity;
 /// Long-backed, 8 bytes, O(1) equality, no GC pressure.
 /// </summary>
 /// <param name="Value">The underlying 64-bit identifier.</param>
-public readonly record struct EntityId(long Value) : IEquatable<EntityId>
+public readonly record struct EntityId(long Value) : IEquatable<EntityId>, IComparable<EntityId>
 {
     /// <summary>
     /// Sentinel value representing no entity.
@@ -16,4 +16,10 @@ public readonly record struct EntityId(long Value) : IEquatable<EntityId>
     /// Returns <see langword="true"/> if this identifier is not <see cref="None"/>.
     /// </summary>
     public bool IsValid => Value != 0L;
+
+    /// <inheritdoc />
+    public int CompareTo(EntityId other) => Value.CompareTo(other.Value);
+
+    /// <inheritdoc />
+    public override string ToString() => $"E:{Value}";
 }

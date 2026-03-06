@@ -39,18 +39,19 @@ public sealed class FLOS010ThreadSafetyAnalyzer : DiagnosticAnalyzer
         var method = symbolInfo.Symbol as IMethodSymbol;
         if (method is null) return;
 
+        var receiverType = ReceiverHelper.GetReceiverTypeString(invocation, context.SemanticModel);
         var containingType = method.ContainingType?.ToDisplayString();
         var methodName = method.Name;
 
         bool isCoreServiceCall = false;
         string? displayName = null;
 
-        if (containingType == TypeNames.IMessageBus && methodName == "Publish")
+        if ((containingType == TypeNames.IMessageBus || receiverType == TypeNames.IMessageBus) && methodName == "Publish")
         {
             isCoreServiceCall = true;
             displayName = "IMessageBus.Publish";
         }
-        else if (containingType == TypeNames.IWorld)
+        else if (containingType == TypeNames.IWorld || receiverType == TypeNames.IWorld)
         {
             if (methodName is "Get" or "Register")
             {

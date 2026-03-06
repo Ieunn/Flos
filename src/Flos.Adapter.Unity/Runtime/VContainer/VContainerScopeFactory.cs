@@ -7,18 +7,18 @@ using VContainer;
 namespace Flos.Adapter.Unity.VContainer
 {
     /// <summary>
-    /// <see cref="IDIAdapter"/> wrapping VContainer's <see cref="IObjectResolver"/>.
+    /// <see cref="IScopeFactory"/> wrapping VContainer's <see cref="IObjectResolver"/>.
     /// </summary>
-    public sealed class VContainerDIAdapter : IDIAdapter
+    public sealed class VContainerScopeFactory : IScopeFactory
     {
         private readonly IObjectResolver _resolver;
 
-        public VContainerDIAdapter(IObjectResolver resolver)
+        public VContainerScopeFactory(IObjectResolver resolver)
         {
             _resolver = resolver;
         }
 
-        public IServiceScope CreateRootScope()
+        public IServiceRegistry CreateRootScope()
         {
             return new VContainerServiceScope(_resolver);
         }

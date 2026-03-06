@@ -35,7 +35,7 @@ namespace Flos.Adapter.Unity.Editor
             GUI.enabled = false;
             EditorGUILayout.EnumPopup("Session State", session.State);
             EditorGUILayout.LongField("Current Tick", session.Scheduler.CurrentTick);
-            EditorGUILayout.FloatField("Elapsed Time", session.Scheduler.ElapsedTime);
+            EditorGUILayout.FloatField("Elapsed Time", (float)session.Scheduler.ElapsedTime);
 
             var types = session.World.RegisteredTypes;
             EditorGUILayout.LabelField("State Slices", types.Count.ToString());

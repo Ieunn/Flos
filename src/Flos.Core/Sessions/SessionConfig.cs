@@ -21,15 +21,10 @@ public sealed class SessionConfig
     /// <summary>
     /// Seconds per tick when using <see cref="Scheduling.TickMode.FixedTick"/>. Defaults to 1/60.
     /// </summary>
-    public float FixedTimeStep { get; init; } = 1f / 60f;
+    public double FixedTimeStep { get; init; } = 1f / 60f;
 
     /// <summary>
-    /// Seed for the deterministic random number generator.
+    /// Optional scope factory for external DI containers. When <see langword="null"/>, the built-in <see cref="BuiltInMinimalScope"/> is used.
     /// </summary>
-    public int RandomSeed { get; init; } = 0;
-
-    /// <summary>
-    /// Optional external DI container adapter. When <see langword="null"/>, the built-in <see cref="BuiltInMinimalScope"/> is used.
-    /// </summary>
-    public IDIAdapter? DIAdapter { get; init; }
+    public IScopeFactory? ScopeFactory { get; init; }
 }

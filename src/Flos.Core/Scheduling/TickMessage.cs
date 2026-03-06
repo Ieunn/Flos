@@ -16,4 +16,4 @@ namespace Flos.Core.Scheduling;
 /// The <c>float</c> type was chosen to align with game engine conventions (Unity, Godot)
 /// where frame deltas are single-precision.
 /// </param>
-public readonly record struct TickMessage(long Tick, float DeltaTime) : IMessage;
+public readonly record struct TickMessage(long Tick, double DeltaTime): IMessage;

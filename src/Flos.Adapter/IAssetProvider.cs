@@ -11,8 +11,9 @@ public interface IAssetProvider
 {
     /// <summary>
     /// Begin loading an asset. <paramref name="callback"/> is invoked on the main thread when complete.
+    /// If <paramref name="cancellation"/> is cancelled before completion, the callback may not be invoked.
     /// </summary>
-    void Load<T>(string key, Action<Result<T>> callback) where T : class;
+    void Load<T>(string key, Action<Result<T>> callback, CancellationToken cancellation = default) where T : class;
 
     /// <summary>
     /// Release a previously loaded asset.

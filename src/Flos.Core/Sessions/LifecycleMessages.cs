@@ -23,6 +23,7 @@ public readonly record struct SessionPausedMessage : IMessage;
 public readonly record struct SessionResumedMessage : IMessage;
 
 /// <summary>
-/// Published during session shutdown, after all modules have been shut down.
+/// Published during session shutdown, before modules are shut down.
+/// Subscribers can react to the impending shutdown while services are still available.
 /// </summary>
 public readonly record struct SessionShutdownMessage : IMessage;

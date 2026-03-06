@@ -23,8 +23,8 @@ public interface IModule
     /// <summary>
     /// Called first in dependency order. Register services into the shared scope.
     /// </summary>
-    /// <param name="scope">The shared service scope for the session.</param>
-    void OnLoad(IServiceScope scope);
+    /// <param name="scope">The load scope exposing registration and pre-registered infrastructure.</param>
+    void OnLoad(ILoadScope scope);
 
     /// <summary>
     /// Called after all modules are loaded and the scope is locked. Resolve cross-module services here.

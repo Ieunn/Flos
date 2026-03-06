@@ -19,14 +19,14 @@ public class MemoryPackSerializer : ISerializer
 }
 
 // Register in a module's OnLoad:
-scope.RegisterInstance<ISerializer>(new MemoryPackSerializer());
+scope.Register<ISerializer>(new MemoryPackSerializer());
 ```
 
 ## API Overview
 
 | Type | Description |
 |------|-------------|
-| `ISerializer` | Serialize/deserialize contract using `IBufferWriter<byte>` and `ReadOnlySpan<byte>` |
+| `ISerializer` | Serialize/deserialize contract using `IBufferWriter<byte>` and `ReadOnlySpan<byte>`. `Deserialize<T>` throws on invalid data. |
 
 ## Notes
 
