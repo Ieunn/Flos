@@ -19,7 +19,6 @@ using Flos.Core.Sessions;
 using Flos.Core.Scheduling;
 using Flos.Core.State;
 using Flos.Pattern.CQRS;
-using Flos.Snapshot;
 
 // 1. Define state
 [DeepClone]
@@ -149,6 +148,7 @@ scope.Register(new CQRSConfig
     EnableJournal = false,
     EnableRollback = true,
     MaxJournalEntries = 1000,  // 0 = unbounded (default)
+    MaxDeferralDepth = 16,     // 0 = disable deferred sends (default 16)
 });
 ```
 
@@ -166,7 +166,7 @@ scope.Register(new CQRSConfig
 | `IRollbackProvider` | State capture and rollback for the pipeline. `Capture`, `RestoreTo`, `Release` |
 | `ICQRSAdapter` | Adapter interface for custom pipeline implementations. `CreatePipeline(IMessageBus, IWorld)` returns `(IPipeline, IHandlerRegistry)`. |
 | `CQRSPatternModule` | Module entry point. Registers pattern, pipeline, journal, and middleware. |
-| `CQRSConfig` | Runtime config: `FaultMode`, `EnableJournal`, `EnableRollback`, `MaxJournalEntries` |
+| `CQRSConfig` | Runtime config: `FaultMode`, `EnableJournal`, `EnableRollback`, `MaxJournalEntries`, `MaxDeferralDepth` |
 | `ApplierFaultMode` | `Strict` (default), `Tolerant`, `Fatal` |
 | `EventBuffer` | Reusable, array-backed buffer for events emitted by handlers. Owned by the pipeline. |
 | `CommandRejectedMessage` | Published on the bus when a command fails validation or application. Carries `ICommand` and `ErrorCode`. |
@@ -202,7 +202,8 @@ For zero-allocation dispatch and result access, call `pipeline.Send<TCommand>(cm
 | `CQRSErrors.UnknownCommand` | No handler registered for the command type |
 | `CQRSErrors.HandlerFailed` | The handler returned a non-default `ErrorCode` |
 | `CQRSErrors.ApplierFailed` | An event applier threw an exception during `Apply` |
-| `CQRSErrors.ReentrantSend` | `Pipeline.Send` called from within a handler or applier |
+| `CQRSErrors.ReentrantSend` | `Pipeline.Send` called reentrantly with `MaxDeferralDepth=0` (deferred sends disabled) |
+| `CQRSErrors.DeferralDepthExceeded` | Deferred command queue exceeded `MaxDeferralDepth`. Possible infinite command loop |
 | `CQRSErrors.InvalidConfiguration` | `EnableRollback` is true but no `IRollbackProvider` is registered |
 
 ## ApplierFaultMode
@@ -233,9 +234,36 @@ scope.Register<ICQRSAdapter>(new MyAdapter());
 
 `CQRSPatternModule` uses `TryRegister` for `ICQRSAdapter`, so a pre-registered adapter takes priority over the built-in one.
 
+## Deferred Send (Reentrant Commands)
+
+When `Send` is called from within a handler, applier, or event subscriber, the command is **queued** and executed in FIFO order after the outermost `Send` completes. This enables chain-reaction patterns (e.g., Battlecry triggers Deathrattle triggers end-of-turn effects) without breaking pipeline invariants.
+
+```
+pipeline.Send(PlayCardCommand)           // outermost Send
+  -> Handler emits CardPlayedEvent
+  -> Applier: card enters play
+  -> Event published -> subscriber calls pipeline.Send(BattlecryCommand)  // queued
+  -> outermost Send completes
+  -> drain: Send(BattlecryCommand)
+    -> Handler emits DamageDealtEvent
+    -> Applier: target takes damage, dies
+    -> Event published -> subscriber calls pipeline.Send(DeathrattleCommand)  // queued
+    -> BattlecryCommand completes
+  -> drain: Send(DeathrattleCommand)
+    -> ...
+```
+
+Key properties:
+- **Breadth-first execution:** deferred commands execute in FIFO order, not recursively
+- **Independent rollback:** each deferred command has its own rollback snapshot
+- **Fresh state view:** each deferred handler sees the latest world state (including mutations from prior commands)
+- **Depth limit:** `MaxDeferralDepth` (default 16) prevents infinite loops; throws `CQRSErrors.DeferralDepthExceeded` when exceeded
+- **Opt-out:** set `MaxDeferralDepth = 0` to disable deferred sends and throw `CQRSErrors.ReentrantSend` immediately (original behavior)
+- **Return value:** the deferred caller receives `Result<EventBuffer>.Ok` with the outer command's event buffer; callers inside handlers should not rely on the returned events
+
 ## Determinism Notes
 
 - Handlers receive `IStateReader` (read-only snapshot when rollback is enabled) — cannot accidentally mutate state.
 - Applier exceptions trigger automatic state rollback in `Strict` mode (configurable via `ApplierFaultMode`).
 - Event journal enables deterministic replay.
-- Pipeline is not re-entrant — calling `Send` from within a handler or applier throws `CQRSErrors.ReentrantSend`.
+- Deferred commands are journaled in execution order, preserving deterministic replay across chain reactions.

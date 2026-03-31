@@ -1,4 +1,4 @@
-namespace Flos.Diagnostics;
+namespace Flos.Adapter;
 
 /// <summary>
 /// Default no-op tracer. All operations are zero-cost.

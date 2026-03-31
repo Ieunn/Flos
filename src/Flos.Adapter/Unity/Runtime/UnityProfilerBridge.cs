@@ -1,6 +1,6 @@
 using System;
 using System.Collections.Generic;
-using Flos.Diagnostics;
+using Flos.Adapter;
 using Unity.Profiling;
 
 namespace Flos.Adapter.Unity

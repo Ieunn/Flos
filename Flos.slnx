@@ -1,17 +1,12 @@
 <Solution>
   <Folder Name="/src/">
-    <Project Path="src/Flos.Adapter.Console/Flos.Adapter.Console.csproj" />
-    <Project Path="src/Flos.Collections/Flos.Collections.csproj" />
     <Project Path="src/Flos.Core/Flos.Core.csproj" />
-    <Project Path="src/Flos.Identity/Flos.Identity.csproj" />
-    <Project Path="src/Flos.Random/Flos.Random.csproj" />
-    <Project Path="src/Flos.Snapshot/Flos.Snapshot.csproj" />
+    <Project Path="src/Flos.Adapter/Flos.Adapter.csproj" />
     <Project Path="src/Flos.Pattern.CQRS/Flos.Pattern.CQRS.csproj" />
+    <Project Path="src/Flos.Pattern.ECS/Flos.Pattern.ECS.csproj" />
     <Project Path="src/Flos.Analyzers/Flos.Analyzers.csproj" />
     <Project Path="src/Flos.Generators/Flos.Generators.csproj" />
-    <Project Path="src/Flos.Serialization/Flos.Serialization.csproj" />
-    <Project Path="src/Flos.Diagnostics/Flos.Diagnostics.csproj" />
-    <Project Path="src/Flos.Pattern.ECS/Flos.Pattern.ECS.csproj" />
-    <Project Path="src/Flos.Adapter/Flos.Adapter.csproj" />
+    <Project Path="src/Flos.Collections/Flos.Collections.csproj" />
+    <Project Path="src/Flos.Random/Flos.Random.csproj" />
   </Folder>
 </Solution>

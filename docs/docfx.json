@@ -15,22 +15,6 @@
           "src": ".."
         },
         {
-          "files": ["src/**/Flos.Identity.csproj"],
-          "src": ".."
-        },
-        {
-          "files": ["src/**/Flos.Snapshot.csproj"],
-          "src": ".."
-        },
-        {
-          "files": ["src/**/Flos.Serialization.csproj"],
-          "src": ".."
-        },
-        {
-          "files": ["src/**/Flos.Diagnostics.csproj"],
-          "src": ".."
-        },
-        {
           "files": ["src/**/Flos.Pattern.CQRS.csproj"],
           "src": ".."
         },
@@ -48,10 +32,6 @@
         },
         {
           "files": ["src/**/Flos.Adapter.csproj"],
-          "src": ".."
-        },
-        {
-          "files": ["src/**/Flos.Adapter.Console.csproj"],
           "src": ".."
         }
       ],
@@ -87,26 +67,6 @@
         "dest": "packages/collections"
       },
       {
-        "files": ["src/Flos.Identity/README.md"],
-        "src": "..",
-        "dest": "packages/identity"
-      },
-      {
-        "files": ["src/Flos.Snapshot/README.md"],
-        "src": "..",
-        "dest": "packages/snapshot"
-      },
-      {
-        "files": ["src/Flos.Serialization/README.md"],
-        "src": "..",
-        "dest": "packages/serialization"
-      },
-      {
-        "files": ["src/Flos.Diagnostics/README.md"],
-        "src": "..",
-        "dest": "packages/diagnostics"
-      },
-      {
         "files": ["src/Flos.Pattern.CQRS/README.md"],
         "src": "..",
         "dest": "packages/cqrs"
@@ -127,19 +87,9 @@
         "dest": "packages/generators"
       },
       {
-        "files": ["src/Flos.Adapter.Console/README.md"],
+        "files": ["src/Flos.Adapter/README.md"],
         "src": "..",
-        "dest": "packages/adapter-console"
-      },
-      {
-        "files": ["src/Flos.Adapter.Unity/README.md"],
-        "src": "..",
-        "dest": "packages/adapter-unity"
-      },
-      {
-        "files": ["src/Flos.Adapter.Godot/README.md"],
-        "src": "..",
-        "dest": "packages/adapter-godot"
+        "dest": "packages/adapter"
       }
     ],
     "resource": [

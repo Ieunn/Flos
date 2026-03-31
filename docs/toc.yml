@@ -10,14 +10,6 @@
       href: ../src/Flos.Random/README.md
     - name: Flos.Collections
       href: ../src/Flos.Collections/README.md
-    - name: Flos.Identity
-      href: ../src/Flos.Identity/README.md
-    - name: Flos.Snapshot
-      href: ../src/Flos.Snapshot/README.md
-    - name: Flos.Serialization
-      href: ../src/Flos.Serialization/README.md
-    - name: Flos.Diagnostics
-      href: ../src/Flos.Diagnostics/README.md
     - name: Flos.Pattern.CQRS
       href: ../src/Flos.Pattern.CQRS/README.md
     - name: Flos.Pattern.ECS
@@ -26,11 +18,7 @@
       href: ../src/Flos.Analyzers/README.md
     - name: Flos.Generators
       href: ../src/Flos.Generators/README.md
-    - name: Flos.Adapter.Console
-      href: ../src/Flos.Adapter.Console/README.md
-    - name: Flos.Adapter.Unity
-      href: ../src/Flos.Adapter.Unity/README.md
-    - name: Flos.Adapter.Godot
-      href: ../src/Flos.Adapter.Godot/README.md
+    - name: Flos.Adapter
+      href: ../src/Flos.Adapter/README.md
 - name: API Reference
   href: api/

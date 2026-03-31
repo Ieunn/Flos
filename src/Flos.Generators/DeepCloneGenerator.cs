@@ -311,7 +311,7 @@ public sealed class DeepCloneGenerator : IIncrementalGenerator
         foreach (var iface in type.AllInterfaces)
         {
             var ns = iface.OriginalDefinition.ContainingNamespace?.ToDisplayString();
-            if ((ns == "Flos.Core.State" || ns == "Flos.Snapshot")
+            if ((ns == "Flos.Core.State" || ns == "Flos.Pattern.CQRS")
                 && iface.OriginalDefinition.Name == "IDeepCloneable")
                 return true;
         }

@@ -1,4 +1,4 @@
-namespace Flos.Diagnostics;
+namespace Flos.Adapter;
 
 public enum TraceLevel { Debug, Info, Warning, Error }
 

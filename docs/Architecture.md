@@ -86,15 +86,12 @@ For games that need auditable state transitions:
 
 ```csharp
 using Flos.Pattern.CQRS;
-using Flos.Snapshot;
-using Flos.Identity;
 
 var session = new Session();
 session.Initialize(new SessionConfig
 {
     Modules = [
         new RandomModule(42),
-        new IdentityModule(),
         new SnapshotModule(),
         new CQRSPatternModule(),
         new MyGameModule()
@@ -263,7 +260,7 @@ Services are available at different points in the module lifecycle:
 
 ### Snapshot & Replay
 
-`ISnapshots` (from `Flos.Snapshot`) captures deep-copy snapshots of all registered state slices and can restore the world to a previous state:
+`ISnapshots` (from `Flos.Pattern.CQRS`) captures deep-copy snapshots of all registered state slices and can restore the world to a previous state:
 
 ```csharp
 var snapshots = scope.Resolve<ISnapshots>();
@@ -280,7 +277,7 @@ snapshots.RestoreTo(world, snapshot);
 snapshots.RestoreAndConsume(world, snapshot);
 ```
 
-The CQRS pattern uses snapshots automatically for command rollback. For standalone games, use `ISnapshots` directly for save/load or undo features. Slices that are not registered with `ISnapshots.RegisterSlice<T>()` are silently skipped during capture and restore.
+The CQRS pattern uses snapshots automatically for command rollback. For standalone usage, load `SnapshotModule` and use `ISnapshots` directly for save/load or undo features. Slices that are not registered with `ISnapshots.RegisterSlice<T>()` are silently skipped during capture and restore.
 
 ### Modules
 
@@ -354,6 +351,8 @@ Commands are validated against read-only state. Events mutate state atomically. 
 
 **Use when:** You need replay, undo, networking, or auditable state transitions. Supports configurable fault handling: `Strict` rolls back on applier failure, `Tolerant` skips failing appliers and continues, `Fatal` crashes immediately.
 
+**Deferred send:** Calling `pipeline.Send()` from within a handler, applier, or event subscriber queues the command for FIFO execution after the current command completes. This enables chain-reaction patterns (e.g., card game triggers) without breaking pipeline invariants. Configure `CQRSConfig.MaxDeferralDepth` to control queue depth (default 16, set to 0 to disable).
+
 ### ECS
 
 Delegate to an external ECS framework (Arch, DefaultEcs, Flecs.NET) via `IECSAdapter`. Flos provides lifecycle integration and identity bridging.
@@ -383,7 +382,7 @@ Modules = [
 public class HealthModule : ModuleBase
 {
     public override string Id => "Health";
-    public override IReadOnlyList<string> Dependencies => ["Identity"];
+    public override IReadOnlyList<string> Dependencies => [];
 
     private IMessageBus _bus = null!;
 

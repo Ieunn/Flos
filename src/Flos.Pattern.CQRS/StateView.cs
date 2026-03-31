@@ -1,7 +1,7 @@
 using Flos.Core.Errors;
 using Flos.Core.State;
 
-namespace Flos.Snapshot;
+namespace Flos.Pattern.CQRS;
 
 /// <summary>
 /// Resettable point-in-time snapshot holding deep-cloned state slices.
@@ -54,7 +54,7 @@ internal sealed class StateView : IStateView
             if (_entries[i].Type == target)
                 return (T)_entries[i].Slice;
         }
-        throw new FlosException(SnapshotErrors.SliceNotFound,
+        throw new FlosException(CQRSErrors.SnapshotSliceNotFound,
             $"Snapshot does not contain state slice '{typeof(T).Name}'.");
     }
 
@@ -82,7 +82,7 @@ internal sealed class StateView : IStateView
             if (_entries[i].Type == type)
                 return _entries[i].Slice;
         }
-        throw new FlosException(SnapshotErrors.SliceNotFound,
+        throw new FlosException(CQRSErrors.SnapshotSliceNotFound,
             $"Snapshot does not contain state slice '{type.Name}'.");
     }
 

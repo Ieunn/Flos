@@ -1,6 +1,6 @@
 using System.Diagnostics;
 
-namespace Flos.Diagnostics;
+namespace Flos.Adapter;
 
 /// <summary>
 /// Extension methods for <see cref="IProfiler"/> that are compile-stripped

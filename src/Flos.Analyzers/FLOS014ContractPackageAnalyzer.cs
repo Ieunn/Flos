@@ -79,9 +79,8 @@ public sealed class FLOS014ContractPackageAnalyzer : DiagnosticAnalyzer
         return ns is "Flos.Core" or "Flos.Core.Messaging" or "Flos.Core.State"
             or "Flos.Core.Errors" or "Flos.Core.Module" or "Flos.Core.Scheduling"
             or "Flos.Core.Sessions" or "Flos.Core.Logging" or "Flos.Core.Annotations"
-            or "Flos.Random" or "Flos.Identity" or "Flos.Snapshot" or "Flos.Collections"
+            or "Flos.Random" or "Flos.Collections"
             or "Flos.Pattern.CQRS" or "Flos.Pattern.ECS"
-            or "Flos.Diagnostics" or "Flos.Serialization"
             or "Flos.Adapter" or "Flos.Adapter.Console"
             or "Flos.Adapter.Unity" or "Flos.Adapter.Godot"
             or "Flos.Generators" or "Flos.Analyzers";

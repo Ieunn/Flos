@@ -1,6 +1,6 @@
 using Flos.Core.State;
 
-namespace Flos.Snapshot;
+namespace Flos.Pattern.CQRS;
 
 /// <summary>
 /// Default implementation of <see cref="ISnapshots"/>. AOT-safe: no runtime reflection.

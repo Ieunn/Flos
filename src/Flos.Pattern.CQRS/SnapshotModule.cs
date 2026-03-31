@@ -1,6 +1,6 @@
 using Flos.Core.Module;
 
-namespace Flos.Snapshot;
+namespace Flos.Pattern.CQRS;
 
 /// <summary>
 /// Module that registers the <see cref="ISnapshots"/> service.

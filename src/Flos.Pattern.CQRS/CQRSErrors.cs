@@ -22,4 +22,13 @@ public static class CQRSErrors
 
     /// <summary>A state slice does not implement IDeepCloneable and FaultMode disallows live references.</summary>
     public static readonly ErrorCode SliceNotCloneable = new (100, 6);
+
+    /// <summary>FLOS-100-0007. A requested state slice type was not found in the snapshot.</summary>
+    public static readonly ErrorCode SnapshotSliceNotFound = new(100, 7);
+
+    /// <summary>FLOS-100-0008. A state slice does not implement IDeepCloneable for snapshot capture.</summary>
+    public static readonly ErrorCode SnapshotNotCloneable = new(100, 8);
+
+    /// <summary>FLOS-100-0009. Deferred command queue depth exceeded MaxDeferralDepth.</summary>
+    public static readonly ErrorCode DeferralDepthExceeded = new(100, 9);
 }

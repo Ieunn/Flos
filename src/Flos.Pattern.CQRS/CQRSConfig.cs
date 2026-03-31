@@ -24,4 +24,13 @@ public sealed class CQRSConfig
     /// 0 (default) means unbounded — the caller is responsible for manual truncation.
     /// </summary>
     public int MaxJournalEntries { get; init; }
+
+    /// <summary>
+    /// Maximum number of deferred commands that may accumulate when <see cref="IPipeline.Send(ICommand)"/>
+    /// is called reentrantly (from a handler, applier, or event subscriber).
+    /// Deferred commands are executed in FIFO order after the outermost Send completes.
+    /// When exceeded, throws <see cref="Flos.Core.Errors.FlosException"/> with <see cref="CQRSErrors.DeferralDepthExceeded"/>.
+    /// Default: 16. Set to 0 to disable deferred sends (throws <see cref="CQRSErrors.ReentrantSend"/> immediately).
+    /// </summary>
+    public int MaxDeferralDepth { get; init; } = 16;
 }

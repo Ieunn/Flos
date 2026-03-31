@@ -1,6 +1,6 @@
 using Flos.Core.State;
 
-namespace Flos.Snapshot;
+namespace Flos.Pattern.CQRS;
 
 /// <summary>
 /// Read-only point-in-time snapshot of the world state.

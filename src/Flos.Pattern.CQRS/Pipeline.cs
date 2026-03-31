@@ -19,6 +19,8 @@ internal sealed class Pipeline : IPipeline, IHandlerRegistry, IApplierDispatch
     private readonly EventBuffer _eventBuffer = new();
     private readonly ReadOnlyWorldView _handlerView = new();
     private bool _isSending;
+    private readonly Queue<ICommand> _deferredCommands = new();
+    private int _deferralDepth;
 
     private readonly Dictionary<Type, ICommandDispatcher> _dispatchers = new();
     private readonly Dictionary<Type, object> _appliers = new();
@@ -91,7 +93,8 @@ internal sealed class Pipeline : IPipeline, IHandlerRegistry, IApplierDispatch
     [HotPath]
     public Result<EventBuffer> Send(ICommand command)
     {
-        ThrowIfReentrant();
+        if (TryEnqueueIfReentrant(command))
+            return Result<EventBuffer>.Ok(_eventBuffer);
 
         if (!_dispatchers.TryGetValue(command.GetType(), out var dispatcher))
             return Result<EventBuffer>.Fail(CQRSErrors.UnknownCommand);
@@ -99,6 +102,7 @@ internal sealed class Pipeline : IPipeline, IHandlerRegistry, IApplierDispatch
         _isSending = true;
         PublishFaultCount = 0;
         IStateReader? rollbackSnapshot = null;
+        Result<EventBuffer> result;
         try
         {
             rollbackSnapshot = CaptureRollbackIfEnabled();
@@ -106,19 +110,24 @@ internal sealed class Pipeline : IPipeline, IHandlerRegistry, IApplierDispatch
             _eventBuffer.Reset();
             var error = dispatcher.Execute(command, _handlerView, _eventBuffer);
 
-            return FinishSend(command, ref rollbackSnapshot, error);
+            result = FinishSend(command, ref rollbackSnapshot, error);
         }
         finally
         {
             EndSend(rollbackSnapshot);
         }
+
+        DrainDeferredCommands();
+
+        return result;
     }
 
     /// <inheritdoc />
     [HotPath]
     public Result<EventBuffer> Send<TCommand>(TCommand command) where TCommand : ICommand
     {
-        ThrowIfReentrant();
+        if (TryEnqueueIfReentrant(command))
+            return Result<EventBuffer>.Ok(_eventBuffer);
 
         if (!_dispatchers.TryGetValue(typeof(TCommand), out var dispatcherObj))
             return Result<EventBuffer>.Fail(CQRSErrors.UnknownCommand);
@@ -126,6 +135,7 @@ internal sealed class Pipeline : IPipeline, IHandlerRegistry, IApplierDispatch
         _isSending = true;
         PublishFaultCount = 0;
         IStateReader? rollbackSnapshot = null;
+        Result<EventBuffer> result;
         try
         {
             var dispatcher = (CommandDispatcher<TCommand>)dispatcherObj;
@@ -135,19 +145,88 @@ internal sealed class Pipeline : IPipeline, IHandlerRegistry, IApplierDispatch
             _eventBuffer.Reset();
             var error = dispatcher.ExecuteTyped(command, _handlerView, _eventBuffer);
 
-            return FinishSend(command, ref rollbackSnapshot, error);
+            result = FinishSend(command, ref rollbackSnapshot, error);
         }
         finally
         {
             EndSend(rollbackSnapshot);
         }
+
+        DrainDeferredCommands();
+
+        return result;
     }
 
-    private void ThrowIfReentrant()
+    /// <summary>
+    /// If currently inside a Send, enqueue the command for deferred execution after the
+    /// outermost Send completes. Returns true if deferred (caller should return early).
+    /// </summary>
+    private bool TryEnqueueIfReentrant(ICommand command)
     {
-        if (_isSending)
+        if (!_isSending)
+            return false;
+
+        if (_config.MaxDeferralDepth == 0)
+        {
             throw new FlosException(CQRSErrors.ReentrantSend,
-                "Reentrant Pipeline.Send detected. Cannot call Send from within a command handler or event applier.");
+                "Reentrant Pipeline.Send detected. Deferred send is disabled (MaxDeferralDepth=0).");
+        }
+
+        if (_deferredCommands.Count >= _config.MaxDeferralDepth)
+        {
+            throw new FlosException(CQRSErrors.DeferralDepthExceeded,
+                $"Deferred command queue exceeded MaxDeferralDepth ({_config.MaxDeferralDepth}). "
+                + "Possible infinite command loop.");
+        }
+
+        _deferredCommands.Enqueue(command);
+        return true;
+    }
+
+    /// <summary>
+    /// Processes all deferred commands in FIFO order after the outermost Send completes.
+    /// Each deferred command may itself queue further commands; those are drained in the same loop
+    /// (breadth-first execution order).
+    /// </summary>
+    private void DrainDeferredCommands()
+    {
+        while (_deferredCommands.TryDequeue(out var deferred))
+        {
+            _deferralDepth++;
+            try
+            {
+                if (!_dispatchers.TryGetValue(deferred.GetType(), out var dispatcher))
+                {
+                    CoreLog.Warn($"Deferred command '{deferred.GetType().Name}' has no handler. Skipping.");
+                    continue;
+                }
+
+                _isSending = true;
+                PublishFaultCount = 0;
+                IStateReader? rollbackSnapshot = null;
+                try
+                {
+                    rollbackSnapshot = CaptureRollbackIfEnabled();
+                    _handlerView.Bind(_world, _config.FaultMode);
+                    _eventBuffer.Reset();
+                    var error = dispatcher.Execute(deferred, _handlerView, _eventBuffer);
+
+                    var result = FinishSend(deferred, ref rollbackSnapshot, error);
+                    if (!result.IsSuccess)
+                    {
+                        CoreLog.Warn($"Deferred command '{deferred.GetType().Name}' failed: {result.Error}");
+                    }
+                }
+                finally
+                {
+                    EndSend(rollbackSnapshot);
+                }
+            }
+            finally
+            {
+                _deferralDepth--;
+            }
+        }
     }
 
     private IStateReader? CaptureRollbackIfEnabled()

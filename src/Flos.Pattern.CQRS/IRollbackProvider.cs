@@ -5,7 +5,7 @@ namespace Flos.Pattern.CQRS;
 /// <summary>
 /// Provides state capture and rollback for the CQRS pipeline.
 /// Implement this interface to enable <see cref="CQRSConfig.EnableRollback"/>.
-/// A typical implementation wraps <c>Flos.Snapshot.ISnapshots</c>.
+/// A typical implementation wraps <see cref="ISnapshots"/>.
 /// </summary>
 public interface IRollbackProvider
 {

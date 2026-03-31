@@ -1,6 +1,6 @@
 using Flos.Core.State;
 
-namespace Flos.Snapshot;
+namespace Flos.Pattern.CQRS;
 
 /// <summary>
 /// Creates and restores deep-copy snapshots of the world state.

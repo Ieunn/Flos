@@ -21,25 +21,18 @@ Flos provides a pattern-neutral microkernel (Core) with pluggable pattern packag
 | Flos.Pattern.CQRS | [CQRS + Event Sourcing pattern](../src/Flos.Pattern.CQRS/README.md) |
 | Flos.Pattern.ECS | [Adapter-first ECS integration](../src/Flos.Pattern.ECS/README.md) |
 
-## Domain Modules
+## Standalone Packages
 
 | Package | README |
 |---------|--------|
 | Flos.Random | [Deterministic RNG (Xoshiro256**)](../src/Flos.Random/README.md) |
 | Flos.Collections | [Deterministic-iteration ordered collections](../src/Flos.Collections/README.md) |
-| Flos.Identity | [Shared logical entity identity](../src/Flos.Identity/README.md) |
-| Flos.Snapshot | [Deep-copy state snapshots and read-only views](../src/Flos.Snapshot/README.md) |
-| Flos.Serialization | [Serialization adapter contract](../src/Flos.Serialization/README.md) |
-| Flos.Diagnostics | [Tracing and profiling adapter contracts](../src/Flos.Diagnostics/README.md) |
 
 ## Adapters
 
 | Package | README |
 |---------|--------|
-| Flos.Adapter | [Shared adapter contracts (assets, save storage, input)](../src/Flos.Adapter/README.md) |
-| Flos.Adapter.Console | [Console/headless adapter](../src/Flos.Adapter.Console/README.md) |
-| Flos.Adapter.Unity | [Unity engine adapter](../src/Flos.Adapter.Unity/README.md) |
-| Flos.Adapter.Godot | [Godot engine adapter](../src/Flos.Adapter.Godot/README.md) |
+| Flos.Adapter | [Adapter contracts + Console/Unity/Godot implementations](../src/Flos.Adapter/README.md) |
 
 ## Tooling
 

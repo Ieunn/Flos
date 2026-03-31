@@ -2,7 +2,7 @@ using Flos.Core.Logging;
 using Flos.Core.Messaging;
 using Flos.Core.Module;
 using Flos.Core.Scheduling;
-using Flos.Diagnostics;
+using Flos.Adapter;
 
 namespace Flos.Adapter.Godot;
 

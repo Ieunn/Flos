@@ -8,7 +8,6 @@ Flos provides a pattern-neutral microkernel (Core) with pluggable pattern packag
 
 - **Pattern-neutral Core** — messaging, state management, scheduling, module loading, error handling. No game-type or pattern bias.
 - **Pluggable patterns** — CQRS/Event Sourcing, ECS integration, or define your own. Patterns are optional, structurally equal packages.
-- **Deterministic execution** — same inputs + same seed = identical state. Enforced by compile-time analyzers.
 - **Engine-agnostic** — adapters for Unity, Godot, and Console/headless. Core has zero engine dependencies.
 - **Zero-allocation hot paths** — designed for zero steady-state allocation per tick.
 - **AOT-safe** — source generators for registration, deep clone, and type resolution. No runtime reflection on hot paths.
@@ -18,42 +17,29 @@ Flos provides a pattern-neutral microkernel (Core) with pluggable pattern packag
 | Package | Description |
 |---------|-------------|
 | [`Flos.Core`](src/Flos.Core/README.md) | Microkernel: messaging, state, sessions, scheduling, modules, errors |
-| [`Flos.Random`](src/Flos.Random/README.md) | Deterministic RNG (Xoshiro256**) |
-| [`Flos.Collections`](src/Flos.Collections/README.md) | Deterministic-iteration collections (`IOrderedMap`, `IOrderedSet`) |
-| [`Flos.Identity`](src/Flos.Identity/README.md) | Shared logical entity identity (`EntityId`, `IIdGenerator`) |
-| [`Flos.Snapshot`](src/Flos.Snapshot/README.md) | Deep-copy state snapshots and read-only views |
-| [`Flos.Serialization`](src/Flos.Serialization/README.md) | Serialization adapter contract (no built-in implementation) |
-| [`Flos.Diagnostics`](src/Flos.Diagnostics/README.md) | Tracing and profiling adapter contracts |
-| [`Flos.Adapter`](src/Flos.Adapter/README.md) | Shared adapter contracts (assets, save storage, input) |
-| [`Flos.Pattern.CQRS`](src/Flos.Pattern.CQRS/README.md) | CQRS + Event Sourcing pattern |
+| [`Flos.Adapter`](src/Flos.Adapter/README.md) | Adapter contracts (assets, save storage, input, profiling, tracing) + Console/Unity/Godot implementations |
+| [`Flos.Pattern.CQRS`](src/Flos.Pattern.CQRS/README.md) | CQRS + Event Sourcing pattern, includes snapshot/rollback support |
 | [`Flos.Pattern.ECS`](src/Flos.Pattern.ECS/README.md) | Adapter-first ECS integration |
 | [`Flos.Analyzers`](src/Flos.Analyzers/README.md) | Roslyn analyzers enforcing framework rules |
 | [`Flos.Generators`](src/Flos.Generators/README.md) | Source generators (DeepClone, TypeResolver, Registration) |
-| [`Flos.Adapter.Console`](src/Flos.Adapter.Console/README.md) | Console/headless adapter |
-| [`Flos.Adapter.Unity`](src/Flos.Adapter.Unity/README.md) | Unity engine adapter |
-| [`Flos.Adapter.Godot`](src/Flos.Adapter.Godot/README.md) | Godot engine adapter |
+| [`Flos.Collections`](src/Flos.Collections/README.md) | Deterministic-iteration collections (`IOrderedMap`, `IOrderedSet`) |
+| [`Flos.Random`](src/Flos.Random/README.md) | Deterministic RNG (Xoshiro256**) |
 
 ## Dependency Graph
 
 ```
-Flos.Pattern.CQRS ──┐
-Flos.Pattern.ECS ───┐│
+  Flos.Pattern ─────┐│
                     ││
-  Game Modules ─────┤├──► Flos.Core ◄──── Flos.Adapter.Console
-                    ││                ◄──── Flos.Adapter.Unity
-  Flos.Snapshot ────┘│                ◄──── Flos.Adapter.Godot
-  Flos.Identity ─────┘
-  Flos.Random ───────┘
-
-  Flos.Collections ─── (zero dependencies)
-  Flos.Serialization ─ (depends on Core for ErrorCode only)
-  Flos.Diagnostics ─── (depends on Core for CoreLog only)
-  Flos.Adapter ──────── (depends on Core)
+  Game Modules ─────┤├──► Flos.Core ◄──── Flos.Adapter
+                    ││
+  Flos.Random ──────┘│
+                     │
+  Flos.Collections ───
 
   Lateral: Flos.Analyzers, Flos.Generators (compile-time only)
 ```
 
-All arrows point toward Core. Patterns, modules, and adapters never reference each other — only Core and (optionally) contract packages.
+All arrows point toward Core. Patterns, modules, and adapters never reference each other — only Core and (optionally) utility packages.
 
 ## Quick Start
 
@@ -129,12 +115,12 @@ Flos runs a **tick loop**. Each tick, the Scheduler drains queued cross-thread a
 | Goal | Packages | Notes |
 |------|----------|-------|
 | **Prototype / jam game** | Core | Direct state mutation, no ceremony |
-| **Turn-based / card / strategy** | Core + CQRS + Snapshot + Identity | Full audit trail, undo/replay, deterministic |
-| **Real-time / bullet-hell / RTS** | Core + ECS + Identity | Delegate to Arch/DefaultEcs/Flecs.NET |
+| **Turn-based / card / strategy** | Core + CQRS | Full audit trail, undo/replay, snapshots included |
+| **Real-time / bullet-hell / RTS** | Core + ECS | Delegate to Arch/DefaultEcs/Flecs.NET |
 | **Hybrid** | Core + CQRS + ECS | CQRS for game logic, ECS for physics/particles |
-| **Deterministic multiplayer** | Core + CQRS + Snapshot + Random | Lockstep via event journal replay |
+| **Deterministic multiplayer** | Core + CQRS + Random | Lockstep via event journal replay |
 
-Add `Flos.Random` whenever game logic needs randomness. Add `Flos.Collections` if state slices use maps or sets. Add an adapter package (Console, Unity, Godot) to bridge engine lifecycle.
+Add `Flos.Random` whenever game logic needs deterministic randomness. Add `Flos.Collections` if state slices use maps or sets. The `Flos.Adapter` package includes Console, Unity, and Godot implementations to bridge engine lifecycle.
 
 ## Build
 
@@ -144,8 +130,8 @@ dotnet build Flos.slnx
 ```
 
 **Solution structure:**
-- `Flos.slnx` — source/shipping projects only (13 projects)
-- Unity and Godot adapter projects are compiled by their respective engines and excluded from both solutions
+- `Flos.slnx` — source/shipping projects only (8 packages)
+- Unity and Godot adapter code lives in `src/Flos.Adapter/` subdirectories and is compiled by their respective engines
 
 ## Documentation
 

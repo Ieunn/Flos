@@ -1,4 +1,4 @@
-namespace Flos.Diagnostics;
+namespace Flos.Adapter;
 
 /// <summary>
 /// Shared zero-allocation disposable that does nothing.

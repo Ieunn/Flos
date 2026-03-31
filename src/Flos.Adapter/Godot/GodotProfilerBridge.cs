@@ -1,5 +1,5 @@
 using System.Diagnostics;
-using Flos.Diagnostics;
+using Flos.Adapter;
 
 namespace Flos.Adapter.Godot;
 

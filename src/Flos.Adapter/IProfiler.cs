@@ -1,4 +1,4 @@
-namespace Flos.Diagnostics;
+namespace Flos.Adapter;
 
 /// <summary>
 /// Adapter contract for per-frame profiling.

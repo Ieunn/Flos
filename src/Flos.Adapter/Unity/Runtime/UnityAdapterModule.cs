@@ -2,7 +2,7 @@ using Flos.Adapter;
 using Flos.Core.Logging;
 using Flos.Core.Module;
 using Flos.Core.Scheduling;
-using Flos.Diagnostics;
+using Flos.Adapter;
 
 namespace Flos.Adapter.Unity
 {

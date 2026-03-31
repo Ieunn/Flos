@@ -16,6 +16,11 @@ public interface IPipeline
     /// <param name="command">The command to send.</param>
     /// <returns>
     /// Ok with produced events, or Fail with an ErrorCode. On failure, publishes <see cref="CommandRejectedMessage"/>.
+    /// <para><b>Reentrant calls:</b> When called from within a handler, applier, or event subscriber,
+    /// the command is queued and executed in FIFO order after the outermost Send completes (deferred send).
+    /// The returned <see cref="EventBuffer"/> refers to the outer command's events; callers inside
+    /// handlers should not rely on it. Set <see cref="CQRSConfig.MaxDeferralDepth"/> to 0 to disable
+    /// deferred sends and throw immediately on reentrant calls.</para>
     /// <para><b>Important:</b> The returned <see cref="EventBuffer"/> is owned by the pipeline and is
     /// invalidated on the next <c>Send</c> call. Do not store the reference across multiple sends.
     /// Read the events or copy the data you need before calling <c>Send</c> again.</para>
@@ -30,6 +35,11 @@ public interface IPipeline
     /// <param name="command">The command to send.</param>
     /// <returns>
     /// Ok with produced events, or Fail with an ErrorCode. On failure, publishes <see cref="CommandRejectedMessage"/>.
+    /// <para><b>Reentrant calls:</b> When called from within a handler, applier, or event subscriber,
+    /// the command is queued and executed in FIFO order after the outermost Send completes (deferred send).
+    /// The returned <see cref="EventBuffer"/> refers to the outer command's events; callers inside
+    /// handlers should not rely on it. Set <see cref="CQRSConfig.MaxDeferralDepth"/> to 0 to disable
+    /// deferred sends and throw immediately on reentrant calls.</para>
     /// <para><b>Important:</b> The returned <see cref="EventBuffer"/> is owned by the pipeline and is
     /// invalidated on the next <c>Send</c> call. Do not store the reference across multiple sends.
     /// Read the events or copy the data you need before calling <c>Send</c> again.</para>

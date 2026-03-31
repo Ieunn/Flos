@@ -1,6 +1,6 @@
 using Flos.Core.Logging;
 
-namespace Flos.Diagnostics;
+namespace Flos.Adapter;
 
 /// <summary>
 /// Bridges <see cref="CoreLog.Handler"/> to an <see cref="ITracer"/> instance,
